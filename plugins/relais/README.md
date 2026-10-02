@@ -7,7 +7,7 @@ watches the size of the conversation, warns you at the right moment, has Claude 
 handoff of what was done, then starts a light session that picks up from that handoff by itself.
 
 - 100% local: no network access, nothing sent anywhere.
-- 4 small readable scripts, no dependency to install.
+- A few small readable scripts, no dependency to install.
 - Messages in English or French (follows the system language).
 - Windows, macOS and Linux.
 

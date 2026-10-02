@@ -8,7 +8,7 @@ moment, fait écrire un résumé court de ce qui a été fait, puis relance une 
 de ce résumé toute seule.
 
 - 100 % local : aucun accès réseau, aucune donnée envoyée nulle part.
-- 4 petits scripts lisibles, aucune dépendance à installer.
+- Quelques petits scripts lisibles, aucune dépendance à installer.
 - Messages en français ou en anglais (selon la langue du système).
 - Windows, macOS et Linux.
 

@@ -15,11 +15,11 @@ delete envBase.RELAIS_DOSSIER;
 delete envBase.RELAIS_SEUIL_K;
 delete envBase.RELAIS_SEUIL_FORT_K;
 
-const lancer = (script, entree, lang = 'fr') => {
+const lancer = (script, entree, lang = 'fr', envPlus = {}) => {
   const t0 = Date.now();
   const r = spawnSync(process.execPath, [path.join(ici, script)], {
     input: typeof entree === 'string' ? entree : JSON.stringify(entree),
-    env: { ...envBase, RELAIS_LANG: lang }, encoding: 'utf8',
+    env: { ...envBase, RELAIS_LANG: lang, ...envPlus }, encoding: 'utf8',
   });
   let json = null; try { json = r.stdout ? JSON.parse(r.stdout) : null; } catch { json = 'NOT-JSON'; }
   return { code: r.status, ms: Date.now() - t0, json, stderr: r.stderr };
@@ -88,6 +88,19 @@ const r12 = lancer('reprise.mjs', { source: 'resume', cwd: PROJET });
 verif('resume: leaves a resumed session alone', r12.json === null && fs.existsSync(path.join(dirR, '2026-09-30_12h10_x.md')));
 const r13 = lancer('reprise.mjs', { source: 'clear', cwd: PROJET, session_id: 'n6' }, 'en');
 verif('resume: English messages + "title" key', /^Relay resumed: "X"/.test(r13.json?.systemMessage || ''), r13.json?.systemMessage);
+
+// ---- Auto mode ----
+verif('auto: Claude is told to write ONE file per conversation', /auto_s1\.md/.test(r1.json?.hookSpecificOutput?.additionalContext || ''));
+const r14 = lancer('jauge.mjs', { session_id: 's5', transcript_path: GROS, cwd: PROJET, prompt: 'go' }, 'fr', { RELAIS_AUTO: '0' });
+verif('auto: RELAIS_AUTO=0 brings back the simple reminder', /\/relais/.test(r14.json?.systemMessage || '') && !/auto_/.test(r14.json?.hookSpecificOutput?.additionalContext || ''), r14.json?.systemMessage);
+ecrire('2026-09-30_09h00_ancien.md', PROJET, 'Ancien');
+const t2 = (Date.now() - 3600e3) / 1000; fs.utimesSync(path.join(dirR, '2026-09-30_09h00_ancien.md'), t2, t2);
+ecrire('auto_s9.md', PROJET, 'Recent');
+const r15 = lancer('reprise.mjs', { source: 'clear', cwd: PROJET, session_id: 'n7' });
+verif('resume: loads the newest and archives the older one too', /Recent/.test(r15.json?.systemMessage || '')
+  && fs.existsSync(path.join(dirR, '2026-09-30_09h00_ancien.repris.md')) && fs.existsSync(path.join(dirR, 'auto_s9.repris.md')));
+const r16 = lancer('reprise.mjs', { source: 'clear', cwd: PROJET, session_id: 'n8' });
+verif('resume: the outdated relay never comes back', r16.json === null);
 
 fs.rmSync(HOME, { recursive: true, force: true });
 console.log(`\n${ok} passed, ${ko} failed (temporary folder deleted)`);

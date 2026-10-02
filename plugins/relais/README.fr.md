@@ -242,10 +242,13 @@ Construire le site puis le déployer.
 
 ## 7. Réglages
 
-Trois variables d'environnement facultatives :
+Depuis la 1.2.0, le relais est **automatique** : à chaque palier, Claude termine la demande en cours, puis écrit (ou met à jour) le relais lui-même, dans un seul fichier par conversation (`auto_<session>.md`). Tu n'as plus qu'à taper `/clear` quand tu veux. Quand un relais est repris, les relais plus anciens du même dossier sont archivés aussi : un relais périmé ne ressort jamais.
+
+Quatre variables d'environnement facultatives :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
+| `RELAIS_AUTO` | `1` | `0` = retour aux simples rappels (tu tapes `/relais` toi-même) |
 | `RELAIS_SEUIL_K` | `150` | Premier rappel, en milliers de tokens |
 | `RELAIS_SEUIL_FORT_K` | `250` | Rappel insistant |
 | `RELAIS_LANG` | selon le système | `fr` ou `en` |

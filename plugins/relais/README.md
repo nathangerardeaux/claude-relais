@@ -241,10 +241,13 @@ Build the site, then deploy it.
 
 ## 7. Settings
 
-Three optional environment variables:
+Since 1.2.0 the relay is **automatic**: at each threshold, Claude finishes the current request, then writes (or refreshes) the relay itself in a single file per conversation (`auto_<session>.md`). You only type `/clear` whenever you want. When a relay is resumed, older relays for the same folder are archived too, so an outdated one never comes back.
+
+Four optional environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
+| `RELAIS_AUTO` | `1` | `0` = back to simple reminders (you type `/relais` yourself) |
 | `RELAIS_SEUIL_K` | `150` | First reminder, in thousands of tokens |
 | `RELAIS_SEUIL_FORT_K` | `250` | Insistent reminder |
 | `RELAIS_LANG` | from the system | `en` or `fr` |

@@ -9,7 +9,7 @@
       "name": "relais",
       "source": "./plugins/relais",
       "description": "Context gauge + /relais handoff + automatic resume after /clear: stop re-reading huge conversations on every action. 100% local.",
-      "version": "1.1.0"
+      "version": "1.2.0"
     }
   ]
 }

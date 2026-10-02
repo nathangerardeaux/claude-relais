@@ -9,6 +9,8 @@ import path from 'node:path';
 export const SEUIL_AVERTIR = Number(process.env.RELAIS_SEUIL_K || 150) * 1000;
 export const SEUIL_INSISTER = Number(process.env.RELAIS_SEUIL_FORT_K || 250) * 1000;
 export const RAPPEL_TOUS_LES = 100000; // one more reminder every +100k, never on every message
+// Auto mode (default): at each threshold Claude writes/refreshes the relay itself, so /clear is enough.
+export const AUTO = process.env.RELAIS_AUTO !== '0';
 
 export const dossierRelais = () => {
   // RELAIS_DOSSIER: for tests (never write into the real ~/.claude during a trial run).
@@ -77,6 +79,8 @@ const TEXTES = {
     insister: (c) => `Relais : cette conversation pèse ${c} tokens, relus à CHAQUE action. Tape /relais puis /clear pour repartir d'une session légère.`,
     noteAvertir: (c) => `[jauge relais] Le contexte fait ${c} tokens, relus à chaque appel d'outil. Si la demande ouvre un nouveau sujet ou si la tâche précédente est bouclée, propose en UNE ligne de taper /relais. Sinon continue normalement.`,
     noteInsister: (c) => `[jauge relais] Le contexte fait ${c} tokens, relus à chaque appel d'outil : c'est ce qui fait exploser la consommation. Termine proprement l'étape en cours, puis termine ta réponse par UNE ligne proposant de taper /relais (tu écriras un résumé court, puis /clear repartira de ce résumé). Ne lance pas le relais toi-même sans accord.`,
+    auto: (c) => `Relais : cette conversation pèse ${c} tokens, relus à chaque action. Claude met le relais à jour tout seul : tape /clear quand tu veux repartir léger.`,
+    noteAuto: (c, f) => `[jauge relais, mode automatique] Le contexte fait ${c} tokens, relus à chaque appel d'outil. Traite d'abord la demande actuelle. Ensuite, sans demander, écris le relais toi-même en suivant le format du skill /relais (notes durables du projet d'abord si une décision ou un piège doit survivre), dans ce fichier précis, à écraser s'il existe : ${f}. Termine ta réponse par UNE ligne : « Relais à jour : tape /clear quand tu veux repartir léger. » Ne tape jamais /clear toi-même.`,
     dispo: (t, d) => `Relais disponible : « ${t} » (écrit il y a ${d}). Dis « reprends le relais » pour repartir de là.`,
     noteDispo: (p, t, d) => `[relais] Un relais de session récent existe : ${p} (« ${t} », il y a ${d}). Ne le lis que si l'utilisateur demande de reprendre le relais ou reprend visiblement ce sujet.`,
     repris: (t, d) => `Relais repris : « ${t} » (écrit il y a ${d}).`,
@@ -88,6 +92,8 @@ const TEXTES = {
     insister: (c) => `Relay: this conversation is ${c} tokens, re-read on EVERY action. Type /relais then /clear to start again from a light session.`,
     noteAvertir: (c) => `[relais gauge] Context is ${c} tokens, re-read on every tool call. If the request starts a new topic or the previous task is done, suggest in ONE line that the user types /relais. Otherwise carry on normally.`,
     noteInsister: (c) => `[relais gauge] Context is ${c} tokens, re-read on every tool call: this is what makes usage explode. Finish the current step cleanly, then end your answer with ONE line suggesting the user types /relais (you will write a short handoff, then /clear will resume from it). Do not start the relay yourself without their agreement.`,
+    auto: (c) => `Relay: this conversation is ${c} tokens, re-read on every action. Claude keeps the relay up to date by itself: type /clear whenever you want a light session.`,
+    noteAuto: (c, f) => `[relais gauge, auto mode] Context is ${c} tokens, re-read on every tool call. Handle the current request first. Then, without asking, write the relay yourself following the /relais skill format (update the project's durable notes first if a decision or pitfall must survive), in this exact file, overwriting it if it exists: ${f}. End your answer with ONE line: "Relay up to date: type /clear whenever you want a light session." Never type /clear yourself.`,
     dispo: (t, d) => `Relay available: "${t}" (written ${d} ago). Say "resume the relay" to continue from it.`,
     noteDispo: (p, t, d) => `[relais] A recent session relay exists: ${p} ("${t}", ${d} ago). Only read it if the user asks to resume the relay or clearly picks that topic back up.`,
     repris: (t, d) => `Relay resumed: "${t}" (written ${d} ago).`,

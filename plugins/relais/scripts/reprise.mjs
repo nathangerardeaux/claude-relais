@@ -54,7 +54,10 @@ try {
 
   // After /clear: reload the relay and archive it (single use).
   const contenu = r.texte.length > MAX_CAR ? `${r.texte.slice(0, MAX_CAR)}\n${t.tronque}` : r.texte;
-  fs.renameSync(r.p, r.p.replace(/\.md$/, '.repris.md'));
+  // Archive this relay AND any older one for this folder: an outdated relay must never come back later.
+  for (const c of candidats) {
+    try { fs.renameSync(c.p, c.p.replace(/\.md$/, '.repris.md')); } catch { /* already gone */ }
+  }
   sortieJSON({
     systemMessage: t.repris(r.titre, depuis),
     hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `${t.noteRepris}\n\n${contenu}` },

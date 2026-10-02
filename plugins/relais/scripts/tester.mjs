@@ -50,7 +50,8 @@ verif('gauge: does not repeat the same reminder', r2.code === 0 && r2.json === n
 const r3 = lancer('jauge.mjs', { session_id: 's2', transcript_path: PETIT, cwd: PROJET, prompt: 'hi' });
 verif('gauge: silent below 150k', r3.code === 0 && r3.json === null);
 const r4 = lancer('jauge.mjs', { session_id: 's3', transcript_path: GROS, cwd: PROJET, prompt: '/relais' });
-verif('gauge: silent while /relais runs', r4.code === 0 && r4.json === null);
+verif('gauge: /relais gets the real size, no on-screen reminder', r4.code === 0 && !r4.json?.systemMessage
+  && /680k/.test(r4.json?.hookSpecificOutput?.additionalContext || ''), r4.json?.hookSpecificOutput?.additionalContext);
 const r5 = lancer('jauge.mjs', 'not json');
 verif('gauge: invalid input, no error', r5.code === 0 && r5.json === null && !r5.stderr);
 const r6 = lancer('jauge.mjs', { session_id: 's4', transcript_path: GROS, cwd: PROJET, prompt: 'go' }, 'en');
@@ -101,6 +102,28 @@ verif('resume: loads the newest and archives the older one too', /Recent/.test(r
   && fs.existsSync(path.join(dirR, '2026-09-30_09h00_ancien.repris.md')) && fs.existsSync(path.join(dirR, 'auto_s9.repris.md')));
 const r16 = lancer('reprise.mjs', { source: 'clear', cwd: PROJET, session_id: 'n8' });
 verif('resume: the outdated relay never comes back', r16.json === null);
+
+// ---- Tally: tokens before the relay, now, and freed ----
+const ancien = path.join(HOME, 'ancien.jsonl');
+fs.writeFileSync(ancien, usage(200000) + '\n');
+lancer('jauge.mjs', { session_id: 'v1', transcript_path: PETIT, cwd: PROJET, prompt: 'hi' }); // measured at 40k...
+const r17 = lancer('fin.mjs', { session_id: 'v1', transcript_path: ancien, cwd: PROJET, reason: 'clear' }); // ...then closed at 200k
+verif('end: silent', r17.code === 0 && r17.json === null && !r17.stderr);
+lancer('jauge.mjs', { session_id: 'autre', transcript_path: GROS, cwd: path.join(HOME, 'autre-projet'), prompt: 'x' });
+ecrire('2026-09-30_13h00_bilan.md', PROJET, 'Bilan');
+const r18 = lancer('reprise.mjs', { source: 'clear', cwd: PROJET, session_id: 'v2' });
+verif('resume: announces the size of the cleared conversation (this folder only)', /200k/.test(r18.json?.systemMessage || ''), r18.json?.systemMessage);
+const neuf = path.join(HOME, 'neuf.jsonl');
+fs.writeFileSync(neuf, '');
+const r19 = lancer('bilan.mjs', { session_id: 'v2', transcript_path: neuf });
+verif('tally: waits until an answer is measured', r19.json === null);
+fs.writeFileSync(neuf, usage(30000) + '\n');
+const r20 = lancer('bilan.mjs', { session_id: 'v2', transcript_path: neuf });
+verif('tally: before / now / freed', /avant 200k.*maintenant 30k.*170k.*-85 %/.test(r20.json?.systemMessage || ''), r20.json?.systemMessage);
+const r21 = lancer('bilan.mjs', { session_id: 'v2', transcript_path: neuf });
+verif('tally: shown only once', r21.json === null);
+const r22 = lancer('bilan.mjs', { session_id: 'jamais', transcript_path: neuf });
+verif('tally: silent in an ordinary session', r22.code === 0 && r22.json === null);
 
 fs.rmSync(HOME, { recursive: true, force: true });
 console.log(`\n${ok} passed, ${ko} failed (temporary folder deleted)`);

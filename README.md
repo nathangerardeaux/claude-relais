@@ -190,6 +190,14 @@ Claude finishes what it is doing, then suggests the relay in one line. Nothing h
 3. type `/clear`;
 4. the session restarts with "Relay resumed: …", and Claude carries on with the next step.
 
+**The tally (since 1.3.0)**: on resume, relais recalls how much the previous conversation re-read, then,
+after the first answer of the new session, shows once:
+
+> Relay tally: before 182k tokens re-read on every action, now 31k. Freed: 151k per action (-83%).
+
+"Now" is measured, not estimated: it is what the new session really re-reads (system instructions +
+relay + your first request).
+
 **The right reflex**: hand over **between two steps** (a finished feature, a fixed bug, a change of
 topic), not in the middle of an edit.
 

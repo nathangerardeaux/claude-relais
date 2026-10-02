@@ -4,15 +4,19 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import {
-  SEUIL_AVERTIR, SEUIL_INSISTER, RAPPEL_TOUS_LES, AUTO, dossierRelais, lireStdin, dernierContexte, k, sortieJSON, T,
+  SEUIL_AVERTIR, SEUIL_INSISTER, RAPPEL_TOUS_LES, AUTO, dossierRelais, lireStdin, dernierContexte, noterTaille, k, sortieJSON, T,
 } from './commun.mjs';
 
 try {
   const e = await lireStdin();
   const prompt = String(e.prompt || '').trim();
-  if (/^\/?relais\b/i.test(prompt)) process.exit(0); // the relay is being written right now
-
   const ctx = dernierContexte(e.transcript_path);
+  noterTaille(e.session_id, e.cwd, ctx); // remembered for the "tokens freed" tally after /clear
+
+  if (/^\/?relais\b/i.test(prompt)) { // the relay is being written right now: just give Claude the real size
+    if (ctx) sortieJSON({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: T().noteTailleRelais(k(ctx)) } });
+    process.exit(0);
+  }
   if (ctx < SEUIL_AVERTIR) process.exit(0);
 
   // One reminder per threshold crossed (150k, then 250k, then every +100k): no nagging.

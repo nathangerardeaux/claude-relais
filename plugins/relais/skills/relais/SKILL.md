@@ -61,4 +61,6 @@ date: <YYYY-MM-DD HH:MM>
 3. **End with exactly this message to the user** (filled in, in their language):
    "Relay written: <title>. Type **/clear**: the new session will start from this summary instead of
    re-reading <current size> on every action."
+   `<current size>` is the number given by the relais gauge note in your context (never guess it).
+   After /clear, the new session shows the before / now / freed tally by itself.
    Never type /clear for them.

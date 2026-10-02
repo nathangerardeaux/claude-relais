@@ -3,7 +3,7 @@
 // In a brand-new session opened elsewhere (startup), it is only announced, never forced.
 import fs from 'node:fs';
 import path from 'node:path';
-import { dossierRelais, lireStdin, normCwd, sortieJSON, duree, T } from './commun.mjs';
+import { dossierRelais, lireStdin, normCwd, sortieJSON, duree, derniereTaille, k, T } from './commun.mjs';
 
 const MAX_CAR = 16000;           // safety net: a relay is not a novel
 const FENETRE_CLEAR = 72 * 3600e3;
@@ -58,8 +58,14 @@ try {
   for (const c of candidats) {
     try { fs.renameSync(c.p, c.p.replace(/\.md$/, '.repris.md')); } catch { /* already gone */ }
   }
+  // Size of the conversation that was just cleared: bilan.mjs compares it after the first answer.
+  const avant = derniereTaille(e.cwd, e.session_id);
+  if (avant) {
+    const sid = String(e.session_id || 'x').replace(/[^\w-]/g, '');
+    fs.writeFileSync(path.join(dir, '.etat', `bilan_${sid}.json`), JSON.stringify({ avant }));
+  }
   sortieJSON({
-    systemMessage: t.repris(r.titre, depuis),
+    systemMessage: avant ? t.reprisAvant(r.titre, depuis, k(avant)) : t.repris(r.titre, depuis),
     hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `${t.noteRepris}\n\n${contenu}` },
   });
 } catch {

@@ -60,6 +60,31 @@ export function dernierContexte(transcript) {
   } finally { fs.closeSync(fd); }
 }
 
+// Last measured size of each conversation, so that after /clear the new session can say how much was
+// freed. One tiny file per session in .etat/ (cleaned after 7 days by reprise.mjs).
+export function noterTaille(sid, cwd, ctx) {
+  if (!ctx) return;
+  const id = String(sid || 'x').replace(/[^\w-]/g, '');
+  fs.writeFileSync(path.join(dossierRelais(), '.etat', `taille_${id}.json`),
+    JSON.stringify({ ctx, cwd: normCwd(cwd), le: new Date().toISOString() }));
+}
+// Most recent size measured in this folder by ANOTHER session (the one that was just cleared).
+export function derniereTaille(cwd, saufSid, ageMax = 72 * 3600e3) {
+  const dir = path.join(dossierRelais(), '.etat');
+  const sauf = `taille_${String(saufSid || '').replace(/[^\w-]/g, '')}.json`;
+  const ici = normCwd(cwd);
+  let meilleur = null;
+  for (const f of fs.readdirSync(dir)) {
+    if (!f.startsWith('taille_') || f === sauf) continue;
+    const p = path.join(dir, f);
+    const m = fs.statSync(p).mtimeMs;
+    if (Date.now() - m > ageMax || (meilleur && m <= meilleur.m)) continue;
+    let o; try { o = JSON.parse(fs.readFileSync(p, 'utf8')); } catch { continue; }
+    if (o.cwd === ici && o.ctx > 0) meilleur = { m, ctx: o.ctx };
+  }
+  return meilleur ? meilleur.ctx : 0;
+}
+
 export const k = (n) => `${Math.round(n / 1000)}k`;
 export const duree = (ms) => (ms < 3600e3 ? `${Math.max(1, Math.round(ms / 60e3))} min` : `${Math.round(ms / 3600e3)} h`);
 
@@ -84,6 +109,9 @@ const TEXTES = {
     dispo: (t, d) => `Relais disponible : « ${t} » (écrit il y a ${d}). Dis « reprends le relais » pour repartir de là.`,
     noteDispo: (p, t, d) => `[relais] Un relais de session récent existe : ${p} (« ${t} », il y a ${d}). Ne le lis que si l'utilisateur demande de reprendre le relais ou reprend visiblement ce sujet.`,
     repris: (t, d) => `Relais repris : « ${t} » (écrit il y a ${d}).`,
+    reprisAvant: (t, d, a) => `Relais repris : « ${t} » (écrit il y a ${d}). L'ancienne conversation relisait ${a} tokens à chaque action ; le bilan s'affiche après ma première réponse.`,
+    bilan: (a, m, l, p) => `Bilan relais : avant ${a} tokens relus à chaque action, maintenant ${m}. Libérés : ${l} par action (-${p} %).`,
+    noteTailleRelais: (c) => `[jauge relais] La conversation fait actuellement ${c} tokens (relus à chaque action). C'est le chiffre à citer dans le message final du relais.`,
     noteRepris: `[relais] Cette session prend la suite d'une conversation précédente devenue trop lourde. Voici le relais écrit à la fin de celle-ci : c'est ton point de départ. Ne relis pas les fichiers qu'il résume sauf besoin réel ; enchaîne sur la « prochaine étape ». Si l'utilisateur parle d'autre chose, suis-le.`,
     tronque: '[… relais tronqué]',
   },
@@ -97,6 +125,9 @@ const TEXTES = {
     dispo: (t, d) => `Relay available: "${t}" (written ${d} ago). Say "resume the relay" to continue from it.`,
     noteDispo: (p, t, d) => `[relais] A recent session relay exists: ${p} ("${t}", ${d} ago). Only read it if the user asks to resume the relay or clearly picks that topic back up.`,
     repris: (t, d) => `Relay resumed: "${t}" (written ${d} ago).`,
+    reprisAvant: (t, d, a) => `Relay resumed: "${t}" (written ${d} ago). The previous conversation re-read ${a} tokens on every action; the tally shows after my first answer.`,
+    bilan: (a, m, l, p) => `Relay tally: before ${a} tokens re-read on every action, now ${m}. Freed: ${l} per action (-${p}%).`,
+    noteTailleRelais: (c) => `[relais gauge] The conversation is currently ${c} tokens (re-read on every action). This is the number to quote in the relay's final message.`,
     noteRepris: `[relais] This session continues a previous conversation that had grown too heavy. Below is the relay written at the end of it: it is your starting point. Do not re-read the files it summarizes unless really needed; continue with the "Next step". If the user talks about something else, follow them.`,
     tronque: '[… relay truncated]',
   },

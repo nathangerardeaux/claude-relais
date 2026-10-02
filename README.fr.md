@@ -192,6 +192,14 @@ Claude termine ce qu'il fait, puis vous propose le relais en une ligne. Rien ne 
 3. tapez `/clear` ;
 4. la session repart avec le message « Relais repris : … », et Claude enchaîne sur la prochaine étape.
 
+**Le bilan (depuis la 1.3.0)** : à la reprise, relais rappelle combien l'ancienne conversation relisait,
+puis, après la première réponse de la nouvelle session, affiche une seule fois :
+
+> Bilan relais : avant 182k tokens relus à chaque action, maintenant 31k. Libérés : 151k par action (-83 %).
+
+« Maintenant » est mesuré, pas estimé : c'est ce que la nouvelle session relit réellement (instructions
+du système + relais + votre première demande).
+
 **Le bon réflexe** : passer le relais **entre deux étapes** (une fonctionnalité finie, un bug corrigé,
 un changement de sujet), pas au milieu d'une modification.
 

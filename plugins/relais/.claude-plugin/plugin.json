@@ -1,6 +1,6 @@
 {
   "name": "relais",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "description": "Cut Claude Code usage by stopping huge conversations from being re-read on every action: a context gauge, a /relais handoff and automatic resume after /clear. 100% local.",
   "author": { "name": "nathangerardeaux" },
   "license": "MIT",

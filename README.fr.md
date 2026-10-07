@@ -12,6 +12,12 @@ de ce résumé toute seule.
 - Messages en français ou en anglais (selon la langue du système).
 - Windows, macOS et Linux.
 
+[![Vidéo de présentation de relais (1 min)](docs/relais-video.png)](docs/relais.mp4)
+
+*Vidéo d'une minute, avec musique : le problème, le relais, les économies mesurées, la délégation des longues tâches. Source : [video/](video/) (Remotion).*
+
+**Aussi dans ce dépôt :** le plugin **avocat** ([plugins/avocat](plugins/avocat/README.fr.md)) : un mode avocat du diable. Tant qu'il est allumé, un agent indépendant, en lecture seule, essaie de réfuter chaque réponse de Claude avant qu'elle soit définitive. `/plugin install avocat@claude-relais`, puis `/avocat on`.
+
 ---
 
 ## Sommaire
@@ -80,16 +86,31 @@ proposera `/relais` au bon moment (à la fin d'une étape, pas au milieu). Un se
 moins de 0,2 seconde.
 
 **2. La commande `/relais`**
-Claude met d'abord à jour les notes durables du projet si quelque chose doit survivre (CLAUDE.md,
-dossier de mémoire, documentation), puis écrit un résumé de 60 lignes maximum : objectif, où on en
-est, décisions prises, fichiers touchés, prochaine étape exacte, pièges. Il vous dit ensuite de taper
-`/clear`.
+Claude écrit un résumé de 60 lignes maximum dans le fichier propre à la session (`auto_<session>.md`,
+chemin donné par le plugin) : objectif, où on en est, où lire quoi, vérifié / pas vérifié, décisions,
+ce qui attend votre feu vert, prochaine étape exacte, pièges. Il n'écrit dans la mémoire du projet
+qu'avec votre accord explicite dans la conversation (il propose, vous dites ok), **ajout seulement**. Il vous dit
+ensuite de taper `/clear`. Quand le relais est (ré)écrit, un contrôle vérifie la longueur, les sections
+obligatoires et les secrets possibles : Claude est prévenu **une fois**, pendant qu'il peut corriger.
 
-**3. La reprise automatique**
-Après `/clear`, la nouvelle session recharge ce résumé toute seule. Elle démarre avec vos consignes
-habituelles plus quelques milliers de tokens de résumé, au lieu de plusieurs centaines de milliers
-d'historique. Le résumé n'est utilisé **qu'une fois** (puis archivé). Si vous ouvrez un nouvel onglet
-à la place, le relais est seulement **signalé** : dites « reprends le relais » pour le charger.
+**3. La reprise automatique (v2 : par session)**
+Après `/clear`, la nouvelle session ne considère **que le relais écrit par la session que vous venez de
+fermer**. S'il est frais (écrit moins de 30 min avant le `/clear` et moins de 20k tokens de conversation
+après lui), il est rechargé ; sinon (relais périmé, ou `/clear` longtemps après : probablement un
+changement de sujet), il est seulement signalé, et « reprends le relais » le charge. Dans les deux cas,
+une courte note de contrôles faits par du code l'accompagne : lignes supprimées dans la mémoire du
+projet, secret possible, écart de fraîcheur et fichiers modifiés depuis (git), chemin cité introuvable,
+nombre de propositions en attente dans `a-ranger.md`. Le tout tient en 8 000 caractères. Le relais n'est utilisé **qu'une fois** (puis archivé). Les relais des autres sessions
+(onglet parallèle, ancien relais) sont seulement **signalés**, jamais chargés ni archivés : dites
+« reprends le relais » pour en charger un. Un `/clear` dans une session sans relais ne charge rien.
+
+**4. La délégation des longues tâches (depuis la 2.1.0)**
+Au début de chaque session (démarrage, `/clear`, compactage), Claude reçoit **une seule fois** une
+consigne d'environ 90 tokens. Elle dit qu'une tâche longue (plus d'une dizaine de lectures ou d'étapes)
+qui n'a pas besoin de l'historique part chez un sous-agent moins cher (Sonnet, ou Haiku pour un simple
+relevé), avec une consigne autonome et un résultat court. Les tâches courtes, ce qui dépend de
+l'historique, les questions et ce qui attend votre feu vert restent dans la conversation. Les fichiers
+lus par le sous-agent n'entrent pas dans la conversation : elle reste légère pour la suite.
 
 ---
 
@@ -110,8 +131,22 @@ que la conversation dépassait 150 k au moment d'un message (session neuve mesur
 La conversation 3 gagne moins parce qu'elle contient de longues phases de travail autonome sans
 message de l'utilisateur : le relais ne peut se faire qu'au moment où vous écrivez.
 
-Le plugin lui-même coûte environ **140 tokens par session**, et environ 1 000 quand vous lancez
-`/relais`.
+Le plugin lui-même coûte environ **230 tokens par session** (dont 90 pour la consigne de délégation),
+et environ 1 000 quand vous lancez `/relais`.
+
+**Délégation des longues tâches**, mesurée avec `claude -p` sur des copies identiques d'une même
+session (Opus en session principale, prix API équivalents, détail dans
+[docs/delegation.md](docs/delegation.md)) :
+
+| Tâche | Sans la consigne | Avec la consigne | Conversation après |
+|---|---|---|---|
+| Lire 13 fichiers, session de 112 k | 1,57 $ | **1,25 à 1,32 $ (-16 à -20 %)** | 190 k → **132 k** |
+| Revue de 26 fichiers, session de 112 k | 1,90 $ | **1,47 à 1,49 $ (-22 %)** | 215 k → **135 k** |
+| Lire 13 fichiers, session de 35 k | 0,73 $ | **0,45 $ (-39 %)** | 97 k → **38 k** |
+| Tâche de 1 à 5 appels | inchangé | inchangé : pas déléguée | |
+
+La qualité était la même sur la tâche notée automatiquement (13 fichiers sur 13, noms exportés
+exacts).
 
 Mesurez vos propres chiffres avec le simulateur : [section 8](#8-mesurer-vos-propres-économies).
 
@@ -210,7 +245,10 @@ un changement de sujet), pas au milieu d'une modification.
 ## 6. Le fichier de relais
 
 Emplacement : `~/.claude/relais/` (sous Windows : `%USERPROFILE%\.claude\relais\`), un fichier par
-relais, par exemple `2026-09-30_14h05_menu-mobile.md`.
+session : `auto_<session>.md`. L'exemple ci-dessous est au format v1 ; la v2 ajoute les sections que le
+contrôle exige (titres en français ou en anglais) : **Vérifié / pas vérifié**, **En attente du feu
+vert**, **Prochaine étape**, plus **Où lire quoi** (fichier et section exacts par sujet). Voir
+`skills/relais/SKILL.md`.
 
 ```markdown
 ---
@@ -239,26 +277,30 @@ Construire le site puis le déployer.
 - Le déploiement attend le feu vert.
 ```
 
-- La ligne `cwd:` relie le relais à son dossier de projet : une session ouverte dans un autre projet
-  ne le chargera jamais.
-- Un relais n'est rechargé automatiquement que s'il a moins de **72 h** (après `/clear`), ou signalé
-  s'il a moins de **12 h** (nouvel onglet).
-- Après usage, il est renommé en `.repris.md` : vous gardez l'historique de vos relais.
+- La v2 ne fait jamais confiance à ce que Claude écrit pour le dossier ou la session : les scripts
+  notent eux-mêmes le vrai dossier, la session, l'heure, la taille du contexte et les HEAD git (projet
+  et mémoire) dans `.etat/`. La ligne `cwd:` ne sert plus qu'aux relais au format v1, qui sont signalés
+  (moins de 72 h après `/clear`, 12 h dans un nouvel onglet).
+- `a-ranger.md` : propositions durables écrites en mode automatique (Claude ne touche alors jamais la
+  mémoire). Conservé, jamais archivé ; rangé dans la mémoire seulement avec votre accord.
+- Après usage, un relais est renommé en `.repris.md` : vous gardez l'historique de vos relais.
 - C'est un fichier texte : vous pouvez le relire ou le corriger avant de taper `/clear`.
 
 ---
 
 ## 7. Réglages
 
-Depuis la 1.2.0, le relais est **automatique** : à chaque palier, Claude termine la demande en cours, puis écrit (ou met à jour) le relais lui-même, dans un seul fichier par conversation (`auto_<session>.md`). Tu n'as plus qu'à taper `/clear` quand tu veux. Quand un relais est repris, les relais plus anciens du même dossier sont archivés aussi : un relais périmé ne ressort jamais.
+Depuis la 1.2.0, le relais est **automatique** : à chaque palier, Claude termine la demande en cours, puis écrit (ou met à jour) le relais lui-même, dans un seul fichier par conversation (`auto_<session>.md`). Tu n'as plus qu'à taper `/clear` quand tu veux. En mode automatique, Claude n'écrit dans aucun fichier de mémoire : les propositions durables vont dans `a-ranger.md`.
 
-Quatre variables d'environnement facultatives :
+Six variables d'environnement facultatives :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
+| `RELAIS_V2` | `1` | `0` = comportement v1 exact (interrupteur d'urgence, puis redémarrer Claude Code) |
 | `RELAIS_AUTO` | `1` | `0` = retour aux simples rappels (tu tapes `/relais` toi-même) |
 | `RELAIS_SEUIL_K` | `150` | Premier rappel, en milliers de tokens |
 | `RELAIS_SEUIL_FORT_K` | `250` | Rappel insistant |
+| `RELAIS_DELEGUER` | `1` | `0` = pas de consigne de délégation des longues tâches |
 | `RELAIS_LANG` | selon le système | `fr` ou `en` |
 
 Le plus simple est de les mettre dans le bloc `env` de `~/.claude/settings.json` :
@@ -303,16 +345,22 @@ Pour voir votre consommation réelle en dollars : l'outil
 
 - **Aucun accès réseau.** Aucun des scripts n'ouvre de connexion ni n'envoie quoi que ce soit.
 - **Ce qui est lu** : la fin du journal de conversation que Claude Code tient déjà sur votre disque
-  (`~/.claude/projects/…`), uniquement pour y lire le compteur de tokens de la dernière réponse.
-- **Ce qui est écrit** : les fichiers de relais dans `~/.claude/relais/`, et un petit fichier d'état
-  par session dans `~/.claude/relais/.etat/` (effacé au bout de 7 jours). Rien d'autre.
+  (`~/.claude/projects/…`), uniquement pour y lire le compteur de tokens de la dernière réponse ; et,
+  en lecture seule avec un délai de 3 s, `git` dans le dossier du projet et dans son dossier de mémoire
+  (HEAD, fichiers modifiés, lignes supprimées). Ces appels neutralisent toute option de configuration
+  qui ferait exécuter un programme par un dépôt piégé (fsmonitor, filtres, diff externe, pager, hooks…)
+  et ne font jamais convertir la copie de travail par git. Les chemins cités dans un relais ne sont
+  vérifiés que s'ils sont locaux (jamais `\\serveur\partage`, ni URL).
+- **Ce qui est écrit** : les fichiers de relais dans `~/.claude/relais/`, et de petits fichiers d'état
+  dans `~/.claude/relais/.etat/` (effacés au bout de 7 jours). Rien d'autre : le plugin **n'écrit
+  jamais dans votre projet ni dans sa mémoire**, et n'annule jamais rien (ses contrôles avertissent).
 - **Ce qui est ajouté au contexte de Claude** : une note d'une ligne quand un seuil est franchi, et le
   contenu d'un relais quand vous le reprenez.
 - Un relais contient des informations sur votre projet (chemins, décisions). Il reste sur votre
   machine. Claude a pour consigne de n'y mettre **aucun secret** (mot de passe, jeton, clé), mais
   relisez-le si votre projet est sensible.
 - En cas d'erreur, les hooks se taisent : ils ne bloquent **jamais** un message ni une session.
-- Le code tient en quatre fichiers courts dans `scripts/` : lisez-les avant d'installer.
+- Le code tient en quelques fichiers courts dans `scripts/` : lisez-les avant d'installer.
 
 ---
 
@@ -323,7 +371,7 @@ Pour voir votre consommation réelle en dollars : l'outil
 | Taille de départ ensuite | minimale | réduite, mais la conversation continue de grossir | minimale + résumé |
 | Garde le fil du travail | non | oui, résumé automatique | oui, résumé structuré |
 | Vous prévient au bon moment | non | non (automatique seulement près de la limite de la fenêtre) | **oui, dès 150 k** |
-| Met à jour les notes durables | non | non | oui, avant le résumé |
+| Met à jour les notes durables | non | non | seulement avec votre accord explicite, ajout seulement |
 | Trace lisible et corrigeable | non | non | oui, un fichier par relais |
 
 `/compact` reste utile au milieu d'une tâche longue. relais sert surtout à **ne plus laisser une
@@ -349,8 +397,10 @@ Le plugin est sur un disque externe ou réseau : utilisez l'installation de seco
 Le plugin est installé deux fois (marketplace et secours). Gardez-en un seul.
 
 **Le relais n'est pas rechargé après /clear.**
-Vérifiez que le fichier existe dans `~/.claude/relais/`, qu'il a moins de 72 h, et que sa ligne
-`cwd:` correspond bien au dossier de la session. S'il a déjà servi, il porte le suffixe `.repris.md`.
+La v2 ne recharge que `auto_<id de la session fermée>.md`. Vérifiez qu'il existe dans
+`~/.claude/relais/` (déjà servi : suffixe `.repris.md`). Les autres relais sont seulement signalés :
+dites « reprends le relais ». Si deux sessions du même dossier font `/clear` à quelques secondes
+d'écart, rien n'est chargé (ambigu), volontairement.
 
 **Déboguer les hooks** : lancez `claude --debug`, ou `/debug` en cours de session.
 
@@ -374,8 +424,11 @@ Vérifiez que le fichier existe dans `~/.claude/relais/`, qu'il a moins de 72 h,
 node plugins/relais/scripts/tester.mjs
 ```
 
-17 tests dans un dossier temporaire (jamais votre vrai `~/.claude`) : jauge, seuils, anti-répétition,
-entrée invalide, reprise, usage unique, autre projet, ancienneté, messages français et anglais, et
-lecture rapide d'un journal de 60 Mo.
+97 tests dans un dossier temporaire avec de faux dépôts git (jamais votre vrai `~/.claude`) : les 27
+tests v1 (lancés avec `RELAIS_V2=0`), puis la v2 : reprise normale, deux sessions parallèles, `/clear`
+de changement de sujet, course SessionEnd/SessionStart dans les deux ordres, relais sans en-tête, trop
+long (contrôle Stop et budget de 8 000 caractères), relais périmé avec fichiers git listés, lignes
+supprimées dans la mémoire, `a-ranger.md`, secret signalé sans masquage, chemin absent, dépôt git piégé, chemin UNC jamais sondé, `cd` en cours de session, git lent, `/relais` qui
+reçoit son fichier exact. `RELAIS_V2=0 node scripts/tester.mjs` ne lance que la suite v1.
 
 Licence MIT.

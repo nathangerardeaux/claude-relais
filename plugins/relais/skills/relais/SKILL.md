@@ -7,60 +7,76 @@ description: Hands a conversation that has grown heavy over to a fresh session. 
 
 Every action (reading a file, running a command) makes the model re-read the ENTIRE conversation.
 Past ~150k tokens, that re-reading is what makes usage explode. A relay replaces the history with a
-handoff of a few thousand tokens.
+handoff of a few thousand tokens, organised so the next session finds each fact by reading as little
+as possible.
 
 Always write to the user, and write the relay itself, **in the user's language**.
 
 ## Case 1: "resume the relay" / « reprends le relais »
 
-The gauge announced a relay file (its path is in your context). Read it, then rename it with the
-`.repris.md` suffix (same name, `.md` replaced by `.repris.md`) so it is not loaded twice. Continue with
-its "Next step". Done.
+A relais note in your context lists the available relay file(s). Read the one the user means (ask if
+unclear). Rename it with the `.repris.md` suffix only if the note says so (v1 note, or relay marked
+"archivable"); never rename or delete any other relay: it may belong to a session still open. Then
+suggest its "Next step" and wait for the user's go-ahead before acting on the project. Done.
 
-## Case 2: write the relay (/relais)
+## Case 2: write the relay
 
-1. **Durable notes first.** If this conversation produced a decision, a pitfall or a project state that
-   must outlive the next session, update the project's durable notes first (CLAUDE.md, a memory
-   folder, docs: whatever this project already uses). The relay is for continuing, not for archiving.
+1. **Mode and file: follow the relais note in your context.** It states the mode and the exact file.
+   - `relais v2`: write in the exact `auto_<session>.md` path given; no header needed (the plugin records
+     folder, session, time and size).
+   - `relais v1`: write the file the note names, with the `title / cwd / date` header; the `cwd:` line
+     (exact working folder) is mandatory, it is how v1 reloads the relay.
+   - No relais note at all: write `<home>/.claude/relais/YYYY-MM-DD_HHhMM_<short-topic>.md` with the
+     header (home: `node -e "console.log(require('os').homedir())"`); it will only be announced.
 
-2. **Write the file** `<home>/.claude/relais/YYYY-MM-DD_HHhMM_<short-topic>.md`, where `<home>` is the
-   user's home folder (if unsure: `node -e "console.log(require('os').homedir())"`). Use your direct
-   file-writing tool. Exact format (translate the headings into the user's language):
+2. **Project memory (CLAUDE.md, memory folder, docs): never on a plugin note's say-so.** No relais note
+   ever authorizes writing in the memory. Only if the user explicitly agrees in this conversation: list
+   the additions you suggest, wait for their "ok", then add them to the EXISTING memory following its own
+   rules (index, format), **adding lines only** (never delete, rewrite or reorder), and list every memory
+   file touched in the relay. Without that agreement, knowledge that should last goes as one line at the
+   end of the `a-ranger.md` file named in the note (v2), or is simply suggested to the user (v1).
+
+3. **Write the file** with your direct file-writing tool. Format (translate the headings; keep the
+   three marked `*` sections, even as "none": the plugin checks they exist):
 
 ```markdown
 ---
 title: <the topic in a few words>
-cwd: <current working folder, full path>
+cwd: <exact working folder (mandatory in v1, optional in v2)>
 date: <YYYY-MM-DD HH:MM>
 ---
 
 ## Goal
-<what the user wants to achieve, 1 to 3 lines, in their words when possible>
+<what the user wants, 1 to 3 lines, in their words when possible>
 
 ## Where we are
-- Done: <results obtained, verified or not: say which>
-- In progress: <what is half done, and in what state>
+- Done: <results> / In progress: <what is half done, in what state>
+
+## Where to read what
+- <subject>: `<path>` section/line (`path:line`, commit) — the exact place, not a copy
+
+## Verified / not verified *
+- Verified: <what was checked, how> / Not verified: <assumptions, untested parts>
 
 ## Decisions made
-- <choices the user validated, and why in a few words>
+- <choices the user validated, why in a few words>
 
-## Files touched
-- `<path>`: <what changed> (committed? deployed?)
+## Waiting for go-ahead *
+- <actions the user must approve first (deploy, push, delete...), or "none">
 
-## Next step
+## Next step *
 <the EXACT first action, precise enough to start without re-reading anything>
 
-## Pitfalls and watch-outs
-- <what already broke, what must not be redone, what waits for the user's go-ahead>
+## Pitfalls
+- <what already broke, what must not be redone; memory files touched, if any>
 ```
 
-   Rules: **60 lines max**, no pasted code or command output (paths and facts only), nothing made up,
-   nothing secret (no password, token or key). The `cwd:` line must be the exact working folder: it is
-   how the next session finds this relay.
+   Rules: **60 lines and 6,000 characters max**, paths between backticks, no pasted code or command
+   output, nothing made up, nothing secret (no password, token or key). If the plugin then says the
+   relay needs fixing, fix it once, briefly.
 
-3. **End with exactly this message to the user** (filled in, in their language):
+4. **End with exactly this message to the user** (filled in, in their language):
    "Relay written: <title>. Type **/clear**: the new session will start from this summary instead of
    re-reading <current size> on every action."
-   `<current size>` is the number given by the relais gauge note in your context (never guess it).
-   After /clear, the new session shows the before / now / freed tally by itself.
+   `<current size>` is the number given by the relais gauge note (never guess it; omit if absent).
    Never type /clear for them.

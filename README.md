@@ -13,7 +13,7 @@ handoff of what was done, then starts a light session that picks up from that ha
 
 *"Relais" is French for "relay", as in a relay race: one session hands the baton to the next.*
 
-[![relais overview video (1 min, in French)](docs/relais-video.png)](docs/relais.mp4)
+https://github.com/user-attachments/assets/01ba2f7d-de6e-44e7-af6b-d71a66417915
 
 *One-minute video with music (in French): the problem, the relay, measured savings, delegating long tasks. Source: [video/](video/) (Remotion).*
 

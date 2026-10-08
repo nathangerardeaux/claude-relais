@@ -9,13 +9,19 @@ import {
   SEUIL_AVERTIR, SEUIL_INSISTER, RAPPEL_TOUS_LES, AUTO, V2, dossierRelais, lireStdin, dernierContexte, noterTaille, k, sortieJSON, T,
   fichierAuto, fichierARanger, barres, noterDemande,
 } from './commun.mjs';
+import { fileURLToPath } from 'node:url';
+
+// Where durable knowledge goes now (registre.mjs), instead of the old a-ranger.md list.
+const COMMANDE_REGISTRE = `node "${barres(path.join(path.dirname(fileURLToPath(import.meta.url)), 'registre.mjs'))}" ajouter`;
 
 // Explicit relay request (v2): "/relais", or one of a few exact sentences at the START of the message
 // ("fais le relais", "écris le relais", "write the handoff"...), optionally after "ok," / "oui". Anything
 // else ("lance les tests du relais", "do not make a relay", "relais : pourquoi…") is not a request.
 const DEBUT = String.raw`^(?:(?:ok|oui|vas-y|go|bon|alors|yes|please)[\s,.!]+)?`;
 const PHRASE = new RegExp(`${DEBUT}(?<!\\p{L})(?:(?:fais|écris|ecris|passe|rédige|redige)\\s+le\\s+relais|write\\s+the\\s+(?:relay|handoff))(?!\\p{L})`, 'iu');
-const demandeRelais = (p) => /^\/relais(?!\p{L})/iu.test(p) || PHRASE.test(p);
+// "/relais" and its namespaced form "/relais:relais" are requests; another skill of the plugin
+// ("/relais:regles") is not.
+const demandeRelais = (p) => /^\/(?:relais:)?relais(?![\p{L}:])/iu.test(p) || PHRASE.test(p);
 
 try {
   const e = await lireStdin();
@@ -27,7 +33,7 @@ try {
     noterDemande(e);
     const t = T();
     sortieJSON({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit',
-      additionalContext: t.noteRelais2(ctx ? k(ctx) : '', barres(fichierAuto(e.session_id)), barres(fichierARanger())) } });
+      additionalContext: t.noteRelais2(ctx ? k(ctx) : '', barres(fichierAuto(e.session_id)), COMMANDE_REGISTRE) } });
     process.exit(0);
   }
   if (!V2 && /^\/?relais\b/i.test(prompt)) { // v1: the relay is being written right now: give Claude the real size
@@ -56,7 +62,7 @@ try {
     sortieJSON({
       systemMessage: t.auto(k(ctx)),
       hookSpecificOutput: { hookEventName: 'UserPromptSubmit',
-        additionalContext: V2 ? t.noteAuto2(k(ctx), fichier, barres(fichierARanger())) : t.noteAuto(k(ctx), fichier) },
+        additionalContext: V2 ? t.noteAuto2(k(ctx), fichier, COMMANDE_REGISTRE) : t.noteAuto(k(ctx), fichier) },
     });
     process.exit(0);
   }

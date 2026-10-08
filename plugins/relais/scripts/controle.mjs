@@ -7,8 +7,10 @@
 import fs from 'node:fs';
 import {
   V2, lireStdin, dernierContexte, sortieJSON, T, idSid, fichierAuto, barres, lireMeta, ecrireMeta,
-  dossierMemoire, gitHead, analyserRelais, cleProjet, estHash,
+  dossierMemoire, gitHead, analyserRelais, cleProjet, estHash, dossierRelais,
 } from './commun.mjs';
+import path from 'node:path';
+import { lireRegistre, pourDossier, lignesCouvertes } from './registre.mjs';
 
 try {
   if (!V2) process.exit(0);
@@ -31,6 +33,8 @@ try {
   if (a.trop) pbs.push(t.pbLong(a.pleines, a.car));
   if (a.manquantes.length) pbs.push(t.pbSections(a.manquantes.join(', ')));
   if (a.secrets.length) pbs.push(t.pbSecret(a.secrets.join(', ')));
+  const couvertes = lignesDejaDites(sid, texte, e.cwd || meta.cwd);
+  if (couvertes.length) pbs.push(t.pbCouvert(couvertes.slice(0, 6).map((x) => `${x.ligne} -> ${x.ou}`).join(' ; ')));
   // Written in answer to a relay request (1 s tolerance for coarse file-system clocks)?
   const demande = Number(meta.demandeLe) > 0 && st.mtimeMs >= Number(meta.demandeLe) - 1000;
   const avertir = demande && pbs.length > 0 && !e.stop_hook_active && !meta.averti;
@@ -43,3 +47,21 @@ try {
   if (avertir) sortieJSON({ decision: 'block', reason: t.blocage(barres(f), pbs.join(' ; ')) });
 } catch { /* never a visible error */ }
 process.exit(0);
+
+// Relay lines already said by what the NEXT session will get anyway: the instruction files this session
+// really loaded at start (InstructionsLoaded, see instructions.mjs: session_start, or included by such a
+// file) and the active registry entries for this folder (memoire.mjs re-injects them). A file that is only
+// on disk (memory topic file, lazily loaded nested CLAUDE.md, the other computer's CLAUDE.md) never counts.
+function lignesDejaDites(sid, texte, cwd) {
+  const charges = [];
+  try {
+    const dir = path.join(dossierRelais(), '.etat');
+    for (const f of fs.readdirSync(dir)) if (f.startsWith(`instr_${sid}_`)) { try { charges.push(JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8'))); } catch { /* skip */ } }
+  } catch { /* none */ }
+  const auDemarrage = new Set(charges.filter((x) => x.raison === 'session_start').map((x) => x.p));
+  const retenus = charges.filter((x) => x.raison === 'session_start' || (x.raison === 'include' && auDemarrage.has(x.parent)));
+  const sources = [];
+  for (const x of retenus) { try { sources.push({ nom: barres(x.p), texte: fs.readFileSync(x.p, 'utf8').slice(0, 200000) }); } catch { /* gone: does not count */ } }
+  if (cwd) for (const x of pourDossier(lireRegistre(), cwd)) sources.push({ nom: `registre ${x.id}`, texte: x.texte, ligneParLigne: false });
+  return sources.length ? lignesCouvertes(texte, sources) : [];
+}

@@ -1,0 +1,14 @@
+{
+  "langue": "fr",
+  "note": "Narration of the RelaisV2 video. debut = second where the sentence starts; fin = latest second it must be over (next scene). Written to be read at a natural pace (about 2.5 words per second).",
+  "phrases": [
+    { "id": "p1", "debut": 0.6, "fin": 5.8, "texte": "Voici Claude. Brillant, mais il a une drôle d'habitude." },
+    { "id": "p2", "debut": 6.4, "fin": 11.8, "texte": "À chaque réponse, il relit toute la conversation. Depuis le tout début." },
+    { "id": "p3", "debut": 12.4, "fin": 17.6, "texte": "Plus tu avances, plus la pile grossit, et plus il ralentit." },
+    { "id": "p4", "debut": 18.2, "fin": 23.8, "texte": "Jusqu'à cent quatre-vingt-onze mille tokens relus. À chaque appel." },
+    { "id": "p5", "debut": 24.4, "fin": 30.6, "texte": "Avec relais, il range l'essentiel dans une toute petite boîte." },
+    { "id": "p6", "debut": 31.4, "fin": 40.8, "texte": "Nouvelle session : il ouvre juste la boîte, et reprend exactement là où il en était." },
+    { "id": "p7", "debut": 41.4, "fin": 46.4, "texte": "Seulement trois mille tokens, au lieu de presque deux cent mille." },
+    { "id": "p8", "debut": 47.0, "fin": 55.5, "texte": "Le relais est gratuit, cent pour cent local, et il s'installe en deux commandes." }
+  ]
+}

@@ -1,8 +1,8 @@
 {
   "name": "avocat",
   "version": "1.0.0",
-  "description": "Devil's advocate mode: while it is switched on, an independent agent tries to refute every answer Claude gives (facts, code, actions) before Claude concludes. One switch: /avocat on|off or the relais dashboard. 100% local.",
+  "description": "Devil's advocate mode: while it is switched on, an independent agent tries to refute every answer Claude gives (facts, code, actions) before Claude concludes. One switch: /avocat on|off or the relais dashboard. No extra service: the checking agent only uses Claude Code (read-only tools and web search).",
   "author": { "name": "nathangerardeaux" },
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "keywords": ["verification", "review", "devil's advocate", "fact-check", "agent"]
 }

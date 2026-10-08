@@ -1,17 +1,21 @@
 // Background music of the video, synthesized from scratch (no sample, no licence issue): calm electronic
-// "focus" mood, 96 BPM, A minor (Am - F - C - G, 2 bars each). 25 bars = 62.5 s = the video length.
+// "focus" mood, 120 BPM, A minor (Am - F - C - G, 2 bars each). 25 bars = 50 s = the final video length
+// (rendered at 62.5 s, then sped up x1.25 by ffmpeg: 96 x 1.25 = 120 BPM keeps the scene changes on the beat).
 // Arrangement: pad (bars 1-2), + arpeggio (3-6), + bass, kick, hats (7-20), breakdown (21-23), pad (24-25).
 // Usage: node outils/musique.mjs  ->  public/musique.wav (then converted to mp3, see README).
+//        node outils/musique.mjs --v2  ->  public/musique-v2.wav (56 s, story video, sound effects).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const SR = 44100;
-const BPM = 96;
-const BEAT = 60 / BPM;          // 0.625 s
-const BAR = 4 * BEAT;           // 2.5 s
-const BARS = 25;
-const DUREE = BARS * BAR;       // 62.5 s
+const BPM = 120;
+const BEAT = 60 / BPM;          // 0.5 s
+const BAR = 4 * BEAT;           // 2 s
+// --v2 : 28 bars = 56 s for the story video (public/musique-v2.wav), with sound effects on the cuts.
+const V2 = process.argv.includes('--v2');
+const BARS = V2 ? 28 : 25;
+const DUREE = BARS * BAR;       // 50 s
 const N = Math.round(DUREE * SR);
 const L = new Float32Array(N);
 const R = new Float32Array(N);
@@ -115,10 +119,78 @@ function rythme(debutBar, finBar) {
   }
 }
 
+// ---- v2 sound effects, in seconds of the story video (times match src/v2/Story.tsx and Fin.tsx).
+function pop(t0, f0 = 700, f1 = 180, gain = 0.2) {
+  const i0 = Math.round(t0 * SR);
+  let phase = 0;
+  for (let i = i0; i < Math.min(N, i0 + Math.round(0.25 * SR)); i++) {
+    const t = (i - i0) / SR;
+    phase += (2 * Math.PI * (f1 + (f0 - f1) * Math.exp(-t * 28))) / SR;
+    const s = Math.sin(phase) * Math.exp(-t * 14) * gain;
+    L[i] += s; R[i] += s;
+  }
+}
+function whoosh(t0, dur, gain = 0.12) {
+  const i0 = Math.round(t0 * SR), n = Math.round(dur * SR);
+  let lp = 0;
+  for (let i = i0; i < Math.min(N, i0 + n); i++) {
+    const x = (i - i0) / n;
+    const env = Math.sin(Math.PI * x) ** 2;
+    const k = 0.02 + 0.5 * x; // low-pass opens as the whoosh goes by
+    lp += k * (bruit() - lp);
+    const pan = x;
+    L[i] += lp * env * gain * (1 - pan * 0.6); R[i] += lp * env * gain * (0.4 + pan * 0.6);
+  }
+}
+function suce(t0, dur, gain = 0.07) {
+  const i0 = Math.round(t0 * SR), n = Math.round(dur * SR);
+  let phase = 0;
+  for (let i = i0; i < Math.min(N, i0 + n); i++) {
+    const x = (i - i0) / n;
+    phase += (2 * Math.PI * (220 * 2 ** (x * 3))) / SR;
+    const s = (Math.sin(phase) + 0.4 * Math.sin(phase * 2)) * gain * Math.min(1, x * 8) * (x < 0.97 ? 1 : (1 - x) / 0.03);
+    L[i] += s; R[i] += s;
+  }
+}
+function tic(t0, hauteur = 1800, gain = 0.06) {
+  const i0 = Math.round(t0 * SR);
+  for (let i = i0; i < Math.min(N, i0 + Math.round(0.06 * SR)); i++) {
+    const t = (i - i0) / SR;
+    const s = Math.sin(2 * Math.PI * hauteur * t) * Math.exp(-t * 80) * gain;
+    L[i] += s; R[i] += s;
+  }
+}
+function carillon(t0, notes = [76, 83, 88], gain = 0.07) {
+  notes.forEach((n, k) => {
+    const i0 = Math.round((t0 + k * 0.09) * SR);
+    for (let i = i0; i < Math.min(N, i0 + Math.round(1.2 * SR)); i++) {
+      const t = (i - i0) / SR;
+      const s = (Math.sin(2 * Math.PI * freq(n) * t) + 0.3 * Math.sin(2 * Math.PI * freq(n) * 2.01 * t)) * Math.exp(-t * 4) * gain;
+      L[i] += s * 0.9; R[i] += s;
+    }
+  });
+}
+
 pad();
-arpege(2, 23);
-basse(6, 23);
-rythme(6, 20);
+if (V2) {
+  arpege(1, BARS - 2);
+  basse(3, BARS - 2);
+  rythme(3, BARS - 4);
+  for (const t of [6.2, 11.2, 17.2]) pop(t, 900, 400, 0.1); // user messages
+  pop(24.5, 600, 160, 0.22);                                  // box appears
+  suce(25.0, 2.75);                                           // pages sucked into the box
+  pop(28.0, 900, 120, 0.3); carillon(28.0, [72, 79, 84], 0.06); // box closes
+  whoosh(31.0, 1.7, 0.16);                                    // /clear curtain
+  pop(34.0, 800, 200, 0.22); carillon(34.0);                  // box opens
+  for (let i = 0; i < 6; i++) tic(37.4 + i * 0.55);           // tests passing
+  carillon(40.9, [79, 84, 88, 91], 0.07);                     // task done
+  whoosh(45.5, 0.9, 0.14);                                    // iris to the ending
+  pop(46.7, 700, 180, 0.15);
+} else {
+  arpege(2, 23);
+  basse(6, 23);
+  rythme(6, 20);
+}
 
 // Master: fade in 1.5 s, fade out 4 s, normalise to -1 dBFS.
 let crete = 0;
@@ -138,7 +210,7 @@ for (let i = 0; i < N; i++) {
   buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, L[i] * k)) * 32767), 44 + i * 4);
   buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, R[i] * k)) * 32767), 46 + i * 4);
 }
-const sortie = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'musique.wav');
+const sortie = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', V2 ? 'musique-v2.wav' : 'musique.wav');
 fs.mkdirSync(path.dirname(sortie), { recursive: true });
 fs.writeFileSync(sortie, buf);
 console.log(`${sortie} : ${DUREE} s, crête ${crete.toFixed(3)} avant normalisation`);

@@ -7,10 +7,10 @@ changer votre façon de travailler. Il surveille la taille de la conversation, v
 moment, fait écrire un résumé court de ce qui a été fait, puis relance une session légère qui repart
 de ce résumé toute seule.
 
-- 100 % local : aucun accès réseau, aucune donnée envoyée nulle part.
+- Local : les scripts n'ouvrent aucune connexion réseau et n'envoient rien nulle part.
 - Quelques petits scripts lisibles, aucune dépendance à installer.
 - Messages en français ou en anglais (selon la langue du système).
-- Windows, macOS et Linux.
+- Testé sous Windows ; les scripts ont aussi des branches macOS et Linux (pas encore testées là-bas).
 
 [![Vidéo de présentation de relais (1 min)](../../docs/relais-video.png)](../../docs/relais.mp4)
 
@@ -109,6 +109,28 @@ qui n'a pas besoin de l'historique part chez un sous-agent moins cher (Sonnet, o
 relevé), avec une consigne autonome et un résultat court. Les tâches courtes, ce qui dépend de
 l'historique, les questions et ce qui attend votre feu vert restent dans la conversation. Les fichiers
 lus par le sous-agent n'entrent pas dans la conversation : elle reste légère pour la suite.
+
+**5. Le registre : ce que Claude a appris (depuis la 2.2.0)**
+Quand Claude résout un problème qui pourrait revenir, ou que tu poses une règle durable, il l'enregistre
+en une commande : la règle à appliquer en une ligne, le problème, la solution, un sujet, et si elle vaut
+partout ou pour ce projet. Le registre est un fichier sur le disque (`~/.claude/relais/registre.json`) :
+ni `/clear`, ni le compactage, ni une nouvelle session ne le perdent. À chaque début de session, les
+entrées **actives** du dossier courant (celles du projet d'abord, puis les globales) sont redonnées à
+Claude, en 4 500 caractères au plus ; au-delà, les entrées cachées sont comptées par sujet, avec la
+commande qui les affiche. Plus rien de tout ça n'est recopié dans les relais. Dans le tableau (onglet
+**Mémoire**), tu vois chaque entrée, tu l'actives ou la désactives (active par défaut), tu la modifies
+ou la supprimes, et tu vois quels fichiers d'instructions Claude Code a réellement chargés.
+- **Corriger plutôt que retenir** : un piège qu'un changement durable ferait disparaître (script, étape
+  de build, ligne de config, test, hook) est marqué « à corriger », et la correction est proposée dans
+  « En attente du feu vert » du relais au lieu d'être recopiée de relais en relais.
+- **Pas de répétition, pas de faux « c'est déjà écrit »** : un hook `InstructionsLoaded` note quels
+  `CLAUDE.md` Claude Code a vraiment chargés au début de la session. Après une demande de relais, les
+  lignes du relais déjà dites par l'un de ces fichiers, ou par une entrée active du registre, sont
+  signalées une fois, avec la ligne source ; Claude l'ouvre et ne retire la ligne que si la règle y est
+  vraiment. Un fichier qui existe seulement (fiche de mémoire, `CLAUDE.md` d'un sous-dossier chargé
+  seulement quand on y va, fichier global de l'autre PC) ne compte jamais, et un fichier modifié depuis
+  est relu au moment du contrôle.
+- Les secrets sont refusés (mots de passe, jetons, clés), et chaque entrée reste visible et modifiable.
 
 ---
 
@@ -209,16 +231,13 @@ Vos relais écrits restent dans `~/.claude/relais/` : supprimez ce dossier si vo
 
 Vous travaillez normalement. Tant que la conversation reste légère, relais ne dit rien.
 
-**Quand la conversation dépasse 150 k**, vous voyez :
+**Quand la conversation dépasse 150 k** (puis 250 k, puis tous les +100 k), relais affiche un rappel
+d'une ligne. Par défaut (mode automatique), Claude termine votre demande en cours, puis écrit ou
+rafraîchit lui-même le relais de cette conversation (`auto_<session>.md`). **Vous tapez seulement
+`/clear`**, quand ça vous arrange : la nouvelle session repart du relais. Claude ne tape jamais `/clear`
+à votre place.
 
-> Relais : cette conversation pèse 180k tokens, relus à chaque action. Pense à /relais quand l'étape en
-> cours est finie.
-
-Claude termine ce qu'il fait, puis vous propose le relais en une ligne. Rien ne se déclenche sans vous.
-
-**Au-delà de 250 k**, le rappel devient plus insistant.
-
-**Pour passer le relais :**
+Avec `RELAIS_AUTO=0`, vous avez de simples rappels et vous passez le relais vous-même :
 
 1. tapez `/relais` ;
 2. Claude écrit le résumé et vous confirme : « Relais écrit : … Tapez /clear » ;
@@ -288,9 +307,9 @@ Construire le site puis le déployer.
 
 ## 7. Réglages
 
-Depuis la 1.2.0, le relais est **automatique** : à chaque palier, Claude termine la demande en cours, puis écrit (ou met à jour) le relais lui-même, dans un seul fichier par conversation (`auto_<session>.md`). Tu n'as plus qu'à taper `/clear` quand tu veux. En mode automatique, Claude n'écrit dans aucun fichier de mémoire : les propositions durables vont dans `a-ranger.md`.
+Depuis la 1.2.0, le relais est **automatique** : à chaque palier, Claude termine la demande en cours, puis écrit (ou met à jour) le relais lui-même, dans un seul fichier par conversation (`auto_<session>.md`). Tu n'as plus qu'à taper `/clear` quand tu veux. En mode automatique, Claude n'écrit dans aucun fichier de mémoire : les connaissances durables vont dans le registre (depuis la 2.2.0 ; le `a-ranger.md` des versions précédentes reste compté tant que tu ne l'as pas vidé).
 
-Six variables d'environnement facultatives :
+Sept variables d'environnement facultatives :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
@@ -299,6 +318,7 @@ Six variables d'environnement facultatives :
 | `RELAIS_SEUIL_K` | `150` | Premier rappel, en milliers de tokens |
 | `RELAIS_SEUIL_FORT_K` | `250` | Rappel insistant |
 | `RELAIS_DELEGUER` | `1` | `0` = pas de consigne de délégation des longues tâches |
+| `RELAIS_MEMOIRE` | `1` | `0` = les entrées du registre ne sont pas redonnées en début de session |
 | `RELAIS_LANG` | selon le système | `fr` ou `en` |
 
 Le plus simple est de les mettre dans le bloc `env` de `~/.claude/settings.json` :
@@ -406,8 +426,8 @@ d'écart, rien n'est chargé (ambigu), volontairement.
 
 ## 12. Limites
 
-- relais **ne passe pas le relais à votre place** : c'est volontaire, vous gardez la main. L'économie
-  dépend de votre réflexe à taper `/relais` quand on vous le propose.
+- relais **ne vide jamais la conversation à votre place** : Claude écrit le relais, vous choisissez
+  quand taper `/clear`. L'économie dépend de ce réflexe.
 - Pendant une longue phase de travail autonome, sans message de votre part, la jauge ne se déclenche
   pas (elle agit quand vous écrivez).
 - La qualité du résumé dépend du modèle. Le format imposé (60 lignes, prochaine étape exacte) limite
@@ -422,11 +442,11 @@ d'écart, rien n'est chargé (ambigu), volontairement.
 node scripts/tester.mjs
 ```
 
-97 tests dans un dossier temporaire avec de faux dépôts git (jamais votre vrai `~/.claude`) : les 27
+145 tests dans un dossier temporaire avec de faux dépôts git (jamais votre vrai `~/.claude`) : les 35
 tests v1 (lancés avec `RELAIS_V2=0`), puis la v2 : reprise normale, deux sessions parallèles, `/clear`
 de changement de sujet, course SessionEnd/SessionStart dans les deux ordres, relais sans en-tête, trop
 long (contrôle Stop et budget de 8 000 caractères), relais périmé avec fichiers git listés, lignes
 supprimées dans la mémoire, `a-ranger.md`, secret signalé sans masquage, chemin absent, dépôt git piégé, chemin UNC jamais sondé, `cd` en cours de session, git lent, `/relais` qui
-reçoit son fichier exact. `RELAIS_V2=0 node scripts/tester.mjs` ne lance que la suite v1.
+reçoit son fichier exact. `RELAIS_V2=0 node scripts/tester.mjs` ne lance que la suite v1. La suite du registre (37 tests : enregistrement, secrets refusés, note de début de session bornée, fichiers réellement chargés, lignes déjà dites) tourne à la fin, ou seule : `node scripts/tester-registre.mjs`.
 
-Licence MIT.
+Licence : GPL-3.0 ou version ultérieure (voir `LICENSE`). Copyright (C) 2026 nathangerardeaux.

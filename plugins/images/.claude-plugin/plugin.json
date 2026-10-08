@@ -1,0 +1,8 @@
+{
+  "name": "images",
+  "version": "1.0.0",
+  "description": "Generate images without leaving Claude Code: Claude writes the prompt, generates, LOOKS at the result and retries if it does not match. One engine chosen at setup: free local Stable Diffusion WebUI, or the Codex CLI with a paid ChatGPT plan.",
+  "author": { "name": "nathangerardeaux" },
+  "license": "GPL-3.0-or-later",
+  "keywords": ["images", "image generation", "stable diffusion", "codex", "gpt-image", "illustration"]
+}

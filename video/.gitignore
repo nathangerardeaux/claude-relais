@@ -6,3 +6,10 @@ dist
 # Ignore the output video from Git but not videos you import into src/.
 out
 public/musique.wav
+public/musique-v2.wav
+
+# Narration: generated takes (copied into public/voix) and the abandoned male voice
+narration/femme/
+narration/homme/
+narration/references/it_m1.flac
+public/voix/homme/

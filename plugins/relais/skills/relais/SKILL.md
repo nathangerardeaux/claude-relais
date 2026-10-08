@@ -33,8 +33,16 @@ suggest its "Next step" and wait for the user's go-ahead before acting on the pr
    ever authorizes writing in the memory. Only if the user explicitly agrees in this conversation: list
    the additions you suggest, wait for their "ok", then add them to the EXISTING memory following its own
    rules (index, format), **adding lines only** (never delete, rewrite or reorder), and list every memory
-   file touched in the relay. Without that agreement, knowledge that should last goes as one line at the
-   end of the `a-ranger.md` file named in the note (v2), or is simply suggested to the user (v1).
+   file touched in the relay. Without that agreement, knowledge that should last goes into the plugin
+   registry with the command named in the note (v2: rule, pitfall and its solution, one entry per topic;
+   the user sees, turns off and edits it in the dashboard), or is simply suggested to the user (v1).
+
+   **The registry is not the memory, and not the relay.** It is on disk and reloaded at every session
+   start, so a rule recorded there is never copied into the relay. Same for a rule written in a
+   CLAUDE.md that Claude Code really loaded in this session: leave it out of the relay. Never assume a
+   file is loaded because it exists (a memory topic file, a nested CLAUDE.md, the other computer's
+   global file are not): when the plugin flags relay lines "already said", open the cited source and
+   remove the line only if the rule is really written there.
 
 3. **Write the file** with your direct file-writing tool. Format (translate the headings; keep the
    three marked `*` sections, even as "none": the plugin checks they exist):
@@ -69,7 +77,13 @@ date: <YYYY-MM-DD HH:MM>
 
 ## Pitfalls
 - <what already broke, what must not be redone; memory files touched, if any>
+- <pitfall a lasting change would remove> -> fix: <the change> (also listed in "Waiting for go-ahead")
 ```
+
+   **Fix rather than remember.** For each pitfall, ask: would a change remove it for good (a script, a
+   build step such as `postbuild`, a config line, a test, a hook, a lint rule)? If so, write the fix next
+   to it, list it in "Waiting for go-ahead", and record it in the registry with `"corrigeable": true`
+   and the fix as `solution`. A pitfall that keeps coming back from relay to relay is a fix nobody made.
 
    Rules: **60 lines and 6,000 characters max**, paths between backticks, no pasted code or command
    output, nothing made up, nothing secret (no password, token or key). If the plugin then says the

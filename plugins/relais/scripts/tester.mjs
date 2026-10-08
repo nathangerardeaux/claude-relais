@@ -150,6 +150,13 @@ console.log(`v1 (RELAIS_V2=0): ${ok} passed, ${ko} failed`);
 if (process.env.RELAIS_V2 === '0') console.log('RELAIS_V2=0 in the environment: v2 suite skipped');
 else await suiteV2();
 
+// Registry, session-start memory note, loaded instruction files, "already said" relay check.
+console.log('\n---- registre ----');
+const sousSuite = spawnSync(process.execPath, [path.join(ici, 'tester-registre.mjs')], { encoding: 'utf8' });
+process.stdout.write(sousSuite.stdout || '');
+const bilanRegistre = String(sousSuite.stdout).match(/registre: (\d+) passed, (\d+) failed/);
+if (bilanRegistre) { ok += Number(bilanRegistre[1]); ko += Number(bilanRegistre[2]); } else { ko++; console.log(`FAIL registry suite did not run: ${String(sousSuite.stderr).slice(0, 300)}`); }
+
 fs.rmSync(HOME, { recursive: true, force: true });
 console.log(`\n${ok} passed, ${ko} failed (temporary folders deleted)`);
 process.exit(ko ? 1 : 0);
@@ -227,15 +234,15 @@ async function suiteV2() {
   verif('v2 /relais: gets the exact path auto_<sid>.md + the real size + the mode, nothing on screen',
     /relais\/auto_m1\.md/.test(ac(j1)) && /90k/.test(ac(j1)) && /relais v2/.test(ac(j1)) && !j1.json?.systemMessage, ac(j1).slice(0, 120));
   verif('v2 /relais: real folder and project recorded by the script', egal(meta('m1')?.cwd, PJ) && /^p:/.test(meta('m1')?.cle || ''));
-  for (const p of ['écris le relais', 'fais le relais', 'ok, fais le relais stp', 'rédige le relais', 'write the handoff']) {
+  for (const p of ['écris le relais', 'fais le relais', 'ok, fais le relais stp', 'rédige le relais', 'write the handoff', '/relais:relais']) {
     verif(`v2 request detected: "${p}"`, /auto_m2\.md/.test(ac(jauge('m2', PJ, p))));
   }
-  for (const p of ['lance les tests du relais', 'fais une revue du relais', 'relais : pourquoi la jauge ne dit rien ?', 'do not make a relay', 'reprends le relais', 'on parlera du relais demain, fais le relais plus tard']) {
+  for (const p of ['lance les tests du relais', 'fais une revue du relais', 'relais : pourquoi la jauge ne dit rien ?', 'do not make a relay', 'reprends le relais', 'on parlera du relais demain, fais le relais plus tard', '/relais:regles', '/relaisx']) {
     verif(`v2 not a request: "${p}"`, jauge('m3', PJ, p).json === null);
   }
   const j4 = jauge('g1', PJ, 'continue', 160000);
-  verif('v2 auto threshold: same screen message, exact file, a-ranger.md, "for this relay" only (8)',
-    /160k/.test(sm(j4)) && /auto_g1\.md/.test(ac(j4)) && /a-ranger\.md/.test(ac(j4)) && /Pour ce relais, ne modifie aucun fichier de mémoire/.test(ac(j4))
+  verif('v2 auto threshold: same screen message, exact file, registry command, "for this relay" only (8)',
+    /160k/.test(sm(j4)) && /auto_g1\.md/.test(ac(j4)) && /registre\.mjs" ajouter/.test(ac(j4)) && !/a-ranger/.test(ac(j4)) && /Pour ce relais, ne modifie aucun fichier de mémoire/.test(ac(j4))
     && /n'interdit pas ce que l'utilisateur te demande/.test(ac(j4)) && !/notes durables/.test(ac(j4)), ac(j4).slice(0, 120));
   verif('v2 auto: no repeated reminder (thresholds unchanged)', jauge('g1', PJ, 'encore', 170000).json === null);
   const j6 = jauge('g2', PJ, 'go', 160000, { RELAIS_LANG: 'en' });

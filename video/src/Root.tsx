@@ -6,6 +6,7 @@ import { Fonctionnement } from "./scenes/Fonctionnement";
 import { Installation } from "./scenes/Installation";
 import { Ouverture } from "./scenes/Ouverture";
 import { Probleme } from "./scenes/Probleme";
+import { DUREE_V2, RelaisV2 } from "./v2/RelaisV2";
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -19,6 +20,7 @@ export const RemotionRoot: React.FC = () => {
         <Composition id="Installation" component={Installation} durationInFrames={300} fps={30} width={1920} height={1080} />
       </Folder>
       <Composition id="Relais" component={Relais} durationInFrames={DUREE_RELAIS} fps={30} width={1920} height={1080} />
+      <Composition id="RelaisV2" component={RelaisV2} durationInFrames={DUREE_V2} fps={30} width={1920} height={1080} defaultProps={{ voix: "" as const }} />
     </>
   );
 };

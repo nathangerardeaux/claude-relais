@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Tableau relais</title>
+  <link rel="icon" href="data:,">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <!-- Every visible text comes from public/i18n.js (data-t*), in the system language. -->
+  <aside class="barre">
+    <div class="marque"><span class="logo" aria-hidden="true"></span>Relais<small data-t="app.sousTitre"></small></div>
+    <nav>
+      <button data-page="vue" class="actif" data-t="nav.vue"></button>
+      <button data-page="conversations" data-t="nav.conversations"></button>
+      <button data-page="skills" data-t="nav.skills"></button>
+      <button data-page="gestion" data-t="nav.gestion"></button>
+      <button data-page="memoire" data-t="nav.memoire"></button>
+      <button data-page="avocat"><span data-t="nav.avocat"></span> <span id="pastille-avocat" class="pastille" data-t="commun.off"></span></button>
+      <button data-page="parametres" id="nav-parametres" hidden><span data-t="nav.parametres"></span> <span id="pastille-maj" class="pastille on" hidden data-t="app.majCourt"></span></button>
+    </nav>
+    <div id="compte" class="compte" hidden></div>
+    <div class="pied">
+      <div id="indexation" class="muet" data-t="app.lectureJournaux"></div>
+      <button id="actualiser" class="lien" data-t="app.actualiser"></button>
+      <div class="muet petit" data-t="app.local"></div>
+    </div>
+  </aside>
+
+  <main>
+    <section id="page-vue" class="page actif"></section>
+
+    <section id="page-conversations" class="page">
+      <div class="conv-grille">
+        <div class="conv-liste">
+          <input id="recherche" type="search" data-t-placeholder="conv.recherche" autocomplete="off">
+          <div class="filtres">
+            <select id="filtre-projet" data-t-aria-label="conv.filtreProjet"><option value="" data-t="conv.tousProjets"></option></select>
+            <select id="tri" data-t-aria-label="conv.tri">
+              <option value="date" data-t="conv.triDate"></option>
+              <option value="tokens" data-t="conv.triTokens"></option>
+              <option value="contexte" data-t="conv.triContexte"></option>
+            </select>
+          </div>
+          <ul id="liste-conv"></ul>
+        </div>
+        <div class="conv-detail">
+          <div id="onglets" class="onglets" role="tablist"></div>
+          <div id="detail" class="detail"><p class="vide" data-t="conv.choisir"></p></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="page-skills" class="page"></section>
+    <section id="page-gestion" class="page"></section>
+    <section id="page-memoire" class="page"></section>
+    <section id="page-avocat" class="page"></section>
+    <section id="page-parametres" class="page"></section>
+  </main>
+
+  <div id="connexion" class="connexion" hidden>
+    <div class="carte boite">
+      <div class="marque"><span class="logo" aria-hidden="true"></span>Relais</div>
+      <h1 data-t="connexion.titre"></h1>
+      <p data-t="connexion.intro"></p>
+      <ol class="etapes">
+        <li data-t="connexion.etape1"></li>
+        <li><span data-t="connexion.etape2a"></span> <code>claude auth login</code> <span data-t="connexion.etape2b"></span></li>
+        <li data-t="connexion.etape3"></li>
+      </ol>
+      <p id="connexion-raison" class="avertissement" hidden></p>
+      <div class="actions"><button id="verifier-compte" class="bouton principal" data-t="connexion.verifier"></button>
+        <button id="copier-login" class="bouton" data-t="connexion.copier"></button></div>
+      <p class="muet petit" data-t="connexion.viePrivee"></p>
+    </div>
+  </div>
+  <div id="infobulle" class="infobulle" role="tooltip" hidden></div>
+  <div id="toast" class="toast" hidden></div>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -19,6 +19,12 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/deleguer.mjs\"", "timeout": 10 }
         ]
+      },
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/memoire.mjs\"", "timeout": 10 }
+        ]
       }
     ],
     "SessionEnd": [
@@ -33,6 +39,13 @@
         "hooks": [
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/bilan.mjs\"", "timeout": 10 },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/controle.mjs\"", "timeout": 10 }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/instructions.mjs\"", "timeout": 10 }
         ]
       }
     ]

@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "description": "Vidéo de présentation de relais (Remotion)",
   "repository": {},
-  "license": "MIT",
+  "license": "GPL-3.0-or-later",
   "private": true,
   "dependencies": {
     "@remotion/cli": "4.0.533",

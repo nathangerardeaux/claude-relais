@@ -1,0 +1,142 @@
+{
+  "name": "relais-bureau",
+  "productName": "Relais",
+  "version": "1.0.5",
+  "description": "Tableau relais : application de bureau (fenêtre dédiée autour du serveur local du tableau).",
+  "author": "Nathan Gerardeaux",
+  "license": "GPL-3.0-or-later",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "scripts": {
+    "start": "node outils/lancer.mjs",
+    "icone": "node icone/generer.mjs",
+    "test:fumee": "node outils/fumee.mjs",
+    "test:exe": "node outils/fumee.mjs --exe",
+    "test:piege": "node outils/tester-piege.mjs",
+    "test:installation": "node outils/tester-installation.mjs",
+    "construire": "node outils/construire.mjs",
+    "construire:dossier": "node outils/construire.mjs --dossier",
+    "publier": "node outils/publier.mjs"
+  },
+  "devDependencies": {
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "fr.nybo.relais",
+    "productName": "Relais",
+    "copyright": "Nathan Gerardeaux",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      {
+        "from": "..",
+        "to": ".",
+        "filter": [
+          "serveur.mjs",
+          "analyse.mjs",
+          "catalogue.mjs",
+          "skills-externes.mjs",
+          "gestion.mjs",
+          "compte.mjs",
+          "langue.mjs",
+          "memoire.mjs",
+          "chat-regles.mjs",
+          "public/index.html",
+          "public/app.js",
+          "public/i18n.js",
+          "public/style.css",
+          "public/demo-remotion.mp4"
+        ]
+      },
+      {
+        "from": ".",
+        "to": "bureau",
+        "filter": [
+          "main.mjs",
+          "mises-a-jour.mjs",
+          "depot.json",
+          "icone/relais.ico",
+          "icone/relais.png"
+        ]
+      },
+      "package.json"
+    ],
+    "asar": true,
+    "npmRebuild": false,
+    "electronLanguages": [
+      "fr",
+      "en-US"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "icone/relais.ico"
+    },
+    "electronDist": "node_modules/electron/dist",
+    "extraMetadata": {
+      "main": "bureau/main.mjs"
+    },
+    "extraResources": [
+      {
+        "from": "../../.claude-plugin",
+        "to": "skills/.claude-plugin",
+        "filter": [
+          "marketplace.json"
+        ]
+      },
+      {
+        "from": "../../plugins",
+        "to": "skills/plugins",
+        "filter": [
+          "**/*",
+          "!**/tester.mjs",
+          "!**/tester-*.mjs",
+          "!**/.cache/**",
+          "!**/node_modules/**"
+        ]
+      }
+    ],
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": false,
+      "createStartMenuShortcut": false,
+      "shortcutName": "Relais",
+      "uninstallDisplayName": "Relais",
+      "artifactName": "Relais-Setup-${version}.${ext}",
+      "installerIcon": "icone/relais.ico",
+      "uninstallerIcon": "icone/relais.ico",
+      "installerLanguages": [
+        "en_US",
+        "fr_FR"
+      ],
+      "language": "1033",
+      "include": "installateur/installer.nsh",
+      "deleteAppDataOnUninstall": false,
+      "multiLanguageInstaller": true,
+      "displayLanguageSelector": false
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "nathangerardeaux",
+        "repo": "claude-relais",
+        "releaseType": "draft"
+      }
+    ],
+    "afterPack": "outils/apres-empaquetage.cjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
+  }
+}

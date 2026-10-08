@@ -1,125 +1,143 @@
-# relais — stop paying for Claude Code to re-read your conversations
+# Relais: stop paying Claude Code to re-read your whole conversation
 
 *[Version française](README.fr.md)*
 
-**relais** is a Claude Code plugin that sharply cuts token usage without changing how you work. It
-watches the size of the conversation, warns you at the right moment, has Claude write a short
-handoff of what was done, then starts a light session that picks up from that handoff by itself.
+On long Claude Code sessions, **about 97% of the tokens go into re-reading the conversation history**,
+not into new work. Relais hands the work over to a fresh, light session at the right moment, with a
+short written summary, so Claude carries on without dragging hundreds of thousands of tokens along.
+On the author's five biggest real conversations, that is **-75% tokens** (simulation, details below).
 
-- 100% local: no network access, nothing sent anywhere.
-- A few small readable scripts, no dependency to install.
-- Messages in English or French (follows the system language).
-- Windows, macOS and Linux.
+For anyone who uses Claude Code for long sessions, on a Pro/Max plan (you hit the limits later) or on
+the API (you pay less).
+
+[![Relais in one minute (video, French voice-over)](docs/relais-video.png)](docs/relais.mp4)
+
+*One-minute video (French voice-over): the problem, the relay, the savings.*
+
+---
+
+## Install
+
+Pick **one** of the two ways. Both install the same plugins; the app adds a dashboard on top.
+
+### A. The Relais app (Windows): dashboard + one-click plugins
+
+1. Download **`Relais-Setup-<version>.exe`** from the [latest release](https://github.com/nathangerardeaux/claude-relais/releases/latest).
+2. Run it. The app is not code-signed yet, so Windows SmartScreen may warn you: click
+   **More info**, then **Run anyway**. The installer asks for a folder and offers a Start menu
+   shortcut, a desktop shortcut and starting with Windows (unticked by default).
+3. Open **Relais**. If Claude Code is not signed in on this PC, the app tells you to run
+   `claude auth login` first.
+4. In the **Skills** tab, click **Install** on `relais` (and on `avocat` or `images` if you want them).
+5. **Restart Claude Code.** Plugins only act in sessions opened after they were installed.
+
+The app checks GitHub for updates (10 s after start, then every 6 hours) and **asks** before
+downloading or installing anything.
+
+### B. Plugins only (in Claude Code, any OS)
+
+In Claude Code:
+
+```
+/plugin marketplace add nathangerardeaux/claude-relais
+/plugin install relais@claude-relais
+```
+
+Optional extras from the same marketplace: `/plugin install avocat@claude-relais` and
+`/plugin install images@claude-relais`. Then **restart Claude Code** and check with
+`claude plugin list`.
+
+The same commands work from a terminal: `claude plugin marketplace add nathangerardeaux/claude-relais`,
+then `claude plugin install relais@claude-relais`.
+
+### Requirements
+
+| | Needed for |
+|---|---|
+| [Claude Code](https://docs.claude.com/en/docs/claude-code), recent version, signed in (tested with 2.1.291) | everything |
+| **Node.js 18 or newer** on the PATH (`node --version`) | the plugins: their hooks are small Node scripts |
+| Windows 10/11 x64 | the Relais app, and the guided setup of the `images` plugin |
+
+The plugins `relais` and `avocat` also contain macOS and Linux code paths, but they have only been
+tested on Windows so far. Feedback welcome.
+
+> **Install each plugin only once.** The app's Install button copies the plugin into
+> `~/.claude/skills/` (it shows up as `relais@skills-dir`); the marketplace installs it as
+> `relais@claude-relais`. With both, the hooks run twice.
+
+**External or network drive:** Claude Code refuses to install a marketplace from a location it
+considers "network-shaped". Use the app, or clone the repo and run
+`node plugins/relais/scripts/installer.mjs` (add `--update` to update).
+
+**Uninstall:** `/plugin uninstall relais@claude-relais` (marketplace install), or delete
+`~/.claude/skills/relais/` (app install). The **Manage skills** tab can also turn a plugin off. The app
+itself uninstalls from Windows settings.
+Your relays stay in `~/.claude/relais/`.
+
+---
+
+## What you get
+
+| | What it does |
+|---|---|
+| **relais** plugin | Measures the conversation size on every message. Above 150k tokens, Claude writes a short relay (summary) of the work; you type `/clear` and the new session resumes from it. |
+| **Rules registry** (in relais) | Claude records the pitfalls and rules it learns (per project or global). They are reloaded at the start of every session, so the same mistake is not paid for twice. `/regles` opens a conversation to review them. |
+| **Delegation note** (in relais) | Reminds Claude once per session to give long, self-contained tasks to a cheaper subagent (Sonnet or Haiku) that returns a short result. |
+| **Relais app** (Windows) | A dashboard of your real token usage, conversation by conversation, and one-click management of plugins and skills. |
+| **avocat** plugin | A "devil's advocate" switch: while on, an independent read-only agent tries to refute every answer before Claude concludes. |
+| **images** plugin | Image generation from Claude Code: free with a local Stable Diffusion (NVIDIA GPU), or Codex with a paid ChatGPT plan. Claude writes the prompt, looks at the result and retries. |
 
 *"Relais" is French for "relay", as in a relay race: one session hands the baton to the next.*
 
-https://github.com/user-attachments/assets/01ba2f7d-de6e-44e7-af6b-d71a66417915
-
-*One-minute video with music (in French): the problem, the relay, measured savings, delegating long tasks. Source: [video/](video/) (Remotion).*
-
-**Also in this repo:** the **avocat** plugin ([plugins/avocat](plugins/avocat/README.md)): a devil's advocate mode. While it is on, an independent read-only agent tries to refute every Claude answer before it is final. `/plugin install avocat@claude-relais`, then `/avocat on`.
-
 ---
 
-## Contents
-
-1. [The problem: why Claude Code gets so expensive](#1-the-problem-why-claude-code-gets-so-expensive)
-2. [What relais does](#2-what-relais-does)
-3. [How much it saves](#3-how-much-it-saves)
-4. [Installation](#4-installation)
-5. [Day-to-day use](#5-day-to-day-use)
-6. [The relay file](#6-the-relay-file)
-7. [Settings](#7-settings)
-8. [Measure your own savings](#8-measure-your-own-savings)
-9. [Privacy and security](#9-privacy-and-security)
-10. [relais, /compact or /clear?](#10-relais-compact-or-clear)
-11. [Troubleshooting](#11-troubleshooting)
-12. [Limits](#12-limits)
-13. [Tests and license](#13-tests-and-license)
-
----
-
-## 1. The problem: why Claude Code gets so expensive
+## Why Claude Code gets expensive
 
 Claude Code does not "remember" the conversation: **on every action** (reading a file, running a
-command, editing code) it sends the **whole** conversation from the start back to the model. Caching
-makes that re-read cheaper, but it is still billed, and it happens hundreds of times.
-
-A simple calculation:
+command, editing code) it sends the **whole** conversation back to the model. Caching makes that
+re-read cheaper, but it is still counted, hundreds of times a day.
 
 | Conversation size | Actions in a day | Tokens re-read |
 |---|---|---|
 | 50k | 300 | 15 million |
 | 500k | 300 | **150 million** |
 
-Same work, ten times the tokens, only because the conversation was never restarted. With
-one-million-token context windows, a conversation can keep growing for days before Claude Code
-summarizes it on its own.
-
-**Real measurement** (the author's own history, 3 weeks, 103 sessions):
-
-- **97%** of the tokens consumed were **history re-reads**;
-- less than 1% was text actually written by the model;
-- the biggest conversation re-read **508k tokens per action** on average, over 10,016 actions.
-
-You are barely paying for the work produced: you are mostly paying for re-reading a huge history,
-again and again.
+Same work, ten times the tokens. Measured on the author's own history (3 weeks, 103 sessions):
+**97%** of the tokens were history re-reads, less than 1% was text written by the model, and the
+biggest conversation re-read **508k tokens per action** on average, over 10,016 actions.
 
 ---
 
-## 2. What relais does
+## How relais works
 
 ```mermaid
 graph LR
   A[You send a message] --> B{Gauge: conversation size}
-  B -->|below 150k| C[Nothing, complete silence]
-  B -->|above 150k| D[Reminder: consider /relais]
-  D --> E[/relais: Claude writes a summary, 60 lines max/]
-  E --> F[You type /clear]
-  F --> G[Fresh session: the summary is reloaded automatically]
+  B -->|below 150k| C[Silence]
+  B -->|150k, 250k, then every +100k| D[Claude finishes your request<br/>then writes the relay]
+  D --> E[You type /clear when it suits you]
+  E --> F[Fresh session reloads the relay<br/>and carries on]
 ```
 
-**1. The gauge** (on every message you send)
-It reads the end of the local conversation log and measures how many tokens the last response had to
-re-read. Below 150k: nothing. Above: an on-screen reminder, plus a short note for Claude, which will
-suggest `/relais` at the right time (at the end of a step, not in the middle). One reminder per
-threshold (150k, 250k, then every +100k), never on every message. It reads a 200 MB log in under
-0.2 seconds.
+1. **The gauge** (on every message you send) reads the end of the local conversation log and measures
+   what the last answer had to re-read. Below 150k: nothing.
+2. **The relay.** At each threshold, Claude finishes your current request, then writes (or refreshes)
+   one relay file for this conversation: goal, where things stand, decisions, the exact next step,
+   pitfalls, at most 60 lines.
+3. **You type `/clear`** whenever you want. Claude never does it for you.
+4. **Automatic resume.** The new session reloads the relay by itself (code checks it first: is it
+   fresh, which files changed since, did a path disappear) and shows once how many tokens per action
+   were freed:
 
-**2. The `/relais` command**
-Claude writes a summary of 60 lines max into this session's own file (`auto_<session>.md`, path given
-by the plugin): goal, where things stand, where to read what, verified / not verified, decisions,
-what waits for your go-ahead, the exact next step, pitfalls. It writes in the project's memory only if
-you explicitly agree in the conversation (it suggests, you say ok), **additions only**. It then tells you to
-type `/clear`. When the relay is (re)written, a check runs: too long, a required section missing or a
-possible secret, and Claude is told **once** while it can still fix it.
+   > Relay tally: before 182k tokens re-read on every action, now 31k. Freed: 151k per action (-83%).
 
-**3. Automatic resume (v2: per session)**
-After `/clear`, the new session only considers **the relay written by the session you just cleared**.
-If it is fresh (written less than 30 min before `/clear` and less than 20k tokens of conversation after
-it), it is reloaded; otherwise (stale relay, or `/clear` long after: most likely a change of topic) it is
-only pointed to, and "resume the relay" loads it. Either way a short note of checks made by code comes
-with it: lines deleted in the project memory, possible secret, freshness gap and files changed since
-(git), cited path not found, number of items waiting in `a-ranger.md`. Everything fits in 8,000
-characters. The relay is used **only
-once** (then archived). Relays of other sessions (parallel tab, old relay) are only **announced**,
-never loaded nor archived: say "resume the relay" to load one. A `/clear` in a session that wrote no
-relay loads nothing.
+Prefer to decide yourself? `RELAIS_AUTO=0` turns the automatic relay into simple reminders, and you
+type `/relais` when you want one.
 
-**4. Delegating long tasks (since 2.1.0)**
-At the start of each session (startup, `/clear`, compaction), Claude gets a note of about 90 tokens,
-**once**. It says that a long task (more than about ten reads or steps) that does not need the history
-goes to a cheaper subagent (Sonnet, or Haiku for a plain inventory), with a self-contained brief and a
-short result. Short tasks, anything that depends on the history, questions and whatever awaits your
-go-ahead stay in the conversation. The files read by the subagent never enter the conversation: it stays
-light for what comes next.
+### How much it saves
 
----
-
-## 3. How much it saves
-
-Simulation on the author's 5 biggest real conversations, relaying every time the conversation was
-above 150k when a message was sent (measured fresh session: ~41k):
+Simulation on the author's 5 biggest real conversations, relaying whenever the conversation was above
+150k (measured fresh session: about 41k):
 
 | Conversation | Actions | Re-read per action (average) | Re-read tokens: real → with relais | Saving |
 |---|---|---|---|---|
@@ -130,300 +148,109 @@ above 150k when a message was sent (measured fresh session: ~41k):
 | 5 | 724 | 556k | 402 M → 73 M | -82% |
 | **Total** | | | **23,034 M → 5,723 M** | **-75%** |
 
-Conversation 3 saves less because it contains long stretches of autonomous work with no message from
-the user: a relay can only happen when you write.
+Conversation 3 saves less: long stretches of autonomous work with no message from the user, and the
+gauge only acts when you write. Measure your own numbers (read-only):
 
-The plugin itself costs about **230 tokens per session** (90 of them for the delegation note), and
-about 1,000 when you run `/relais`.
+```
+node plugins/relais/scripts/simuler-economie.mjs --top 5
+```
 
-**Delegating long tasks**, measured with `claude -p` on identical copies of one session (Opus as the
-main model, API-equivalent prices, details in [docs/delegation.md](docs/delegation.md)):
+Full details (relay format, resume rules, rules registry, all settings):
+[plugins/relais/README.md](plugins/relais/README.md).
 
-| Task | Without the note | With the note | Conversation afterwards |
+---
+
+## The Relais app
+
+A local dashboard (Windows app, or `node tableau/serveur.mjs` / `lancer-tableau.cmd` in a browser,
+any OS with Node) that reads your Claude Code logs **without ever changing them**.
+
+| Tab | What you see and do |
+|---|---|
+| **Overview** | Tokens today / 7 days / 30 days, per day and per project, where they go (re-read, written, generated), your heaviest conversations, and tips computed from your own numbers. |
+| **Conversations** | Search and open any conversation: context curve with the 150k / 250k thresholds, tokens added by each tool, subagents, models, and a message-by-message table. Click a message to see every model call it caused. Figures are in tokens, not money. |
+| **Skills** | Install or update this repo's plugins in one click, plus a few hand-picked external skills (Remotion with a video demo, design and CLI skills) installed only after you confirm. |
+| **Manage skills** | Every installed plugin with its permanent context cost. Turn each one on or off everywhere or **only in one project**, and launch Claude with a chosen profile. |
+| **Memory** | The rules registry: filter, add, edit, turn off, delete. See which instruction files Claude Code really loaded. A "rules" chat (no tools, no file access) proposes changes as cards you apply with one click. |
+| **Devil's advocate** | The avocat on/off switch. |
+| **Settings** (app) | Start with Windows, version, updates. |
+
+It opens only when Claude Code is signed in on the machine (`claude auth status`), and shows the
+account name and plan. French or English, following the system language.
+
+---
+
+## Privacy and network
+
+| Part | Network | Reads | Writes |
 |---|---|---|---|
-| Read 13 files, 112k session | $1.57 | **$1.25 to $1.32 (-16 to -20%)** | 190k → **132k** |
-| Review 26 files, 112k session | $1.90 | **$1.47 to $1.49 (-22%)** | 215k → **135k** |
-| Read 13 files, 35k session | $0.73 | **$0.45 (-39%)** | 97k → **38k** |
-| Task of 1 to 5 calls | unchanged | unchanged: not delegated | |
+| relais, avocat (scripts) | **none** (only local `git` calls) | the end of your Claude Code log | `~/.claude/relais/`, `~/.claude/avocat/` |
+| avocat (the checking agent) | it may use web search, like any Claude agent | your files, read-only | nothing |
+| Dashboard / app | listens on **127.0.0.1 only**; outgoing only for app updates (GitHub) and buttons you click (installs, one design file) | your logs, read-only; **never a login token** | a local index (`tableau/.cache/`, with short message excerpts), the registry, settings |
+| "Rules" chat | sends the registry to Claude through `claude -p`, no tools | the registry | only the cards you apply |
+| images | downloads at setup (GitHub, Hugging Face, pip); Stable Diffusion runs on 127.0.0.1; **the Codex engine sends your prompt to OpenAI** | | images in your project |
 
-Quality was the same on the automatically scored task (13 files out of 13, exact exported names).
-
-Measure your own numbers with the simulator: [section 8](#8-measure-your-own-savings).
-
----
-
-## 4. Installation
-
-### Requirements
-
-- Claude Code with plugin support (the `/plugin` command).
-- **Node.js 18 or newer** on the PATH (`node --version`). The hooks are small Node scripts.
-
-### Install from GitHub (recommended)
-
-In Claude Code:
-
-```
-/plugin marketplace add nathangerardeaux/claude-relais
-/plugin install relais@claude-relais
-```
-
-Or from a terminal:
-
-```
-claude plugin marketplace add nathangerardeaux/claude-relais
-claude plugin install relais@claude-relais
-```
-
-Then **restart Claude Code** (the plugin only acts in sessions opened after installation). Check:
-
-```
-claude plugin list
-```
-
-`relais` should show up as loaded.
-
-### Fallback install (external or network drive)
-
-Claude Code refuses to install a plugin from a location it considers "network-shaped" (for example an
-external drive on Windows). In that case, copy the plugin into your home folder, where Claude Code
-loads it by itself:
-
-```
-node <plugin-path>/scripts/installer.mjs
-```
-
-It will show up as `relais@skills-dir`. To update: same command with `--update`.
-
-**Do not install both** (marketplace AND fallback): the hooks would run twice.
-
-### Uninstall
-
-- GitHub install: `/plugin uninstall relais@claude-relais`
-- Fallback install: delete the `~/.claude/skills/relais/` folder
-
-Your written relays stay in `~/.claude/relais/`: delete that folder if you no longer want them.
+- A relay contains information about your project (paths, decisions). It stays on your disk. Claude is
+  told to put **no secrets** in it, and resume flags anything that looks like one; re-read it if your
+  project is sensitive.
+- On any error the hooks stay silent: they **never** block a message or a session.
 
 ---
 
-## 5. Day-to-day use
+## Settings
 
-Work as usual. As long as the conversation stays light, relais says nothing.
-
-**When the conversation goes above 150k**, you see:
-
-> Relay: this conversation is 180k tokens, re-read on every action. Consider /relais once the current
-> step is done.
-
-Claude finishes what it is doing, then suggests the relay in one line. Nothing happens without you.
-
-**Above 250k**, the reminder becomes more insistent.
-
-**To hand over:**
-
-1. type `/relais`;
-2. Claude writes the summary and confirms: "Relay written: … Type /clear";
-3. type `/clear`;
-4. the session restarts with "Relay resumed: …", and Claude carries on with the next step.
-
-**The tally (since 1.3.0)**: on resume, relais recalls how much the previous conversation re-read, then,
-after the first answer of the new session, shows once:
-
-> Relay tally: before 182k tokens re-read on every action, now 31k. Freed: 151k per action (-83%).
-
-"Now" is measured, not estimated: it is what the new session really re-reads (system instructions +
-relay + your first request).
-
-**The right reflex**: hand over **between two steps** (a finished feature, a fixed bug, a change of
-topic), not in the middle of an edit.
-
-**Switching topics**: if you move on to something completely different, a plain `/clear` is enough,
-no relay needed.
-
----
-
-## 6. The relay file
-
-Location: `~/.claude/relais/` (on Windows: `%USERPROFILE%\.claude\relais\`), one file per session:
-`auto_<session>.md`. The format below is the v1 one; v2 adds three sections, the ones the check requires
-(headings in French or English): **Verified / not verified**, **Waiting for go-ahead**, **Next step**,
-plus **Where to read what** (exact file and section per subject). See `skills/relais/SKILL.md`.
-
-```markdown
----
-title: Mobile menu that does not scroll
-cwd: /home/me/projects/site
-date: 2026-09-30 14:05
----
-
-## Goal
-Make the site menu scroll on phones instead of moving the page behind it.
-
-## Where we are
-- Done: CSS fix, checked on 5 screen sizes.
-- In progress: nothing.
-
-## Decisions made
-- The submenu joins the mobile menu from 900 px (validated).
-
-## Files touched
-- `src/index.css`: bounded height + inner scrolling (committed, not deployed yet)
-
-## Next step
-Build the site, then deploy it.
-
-## Pitfalls and watch-outs
-- Deployment waits for the go-ahead.
-```
-
-- v2 never trusts what Claude writes for the folder or the session: the scripts record the real
-  folder, session, time, context size and git HEADs (project and memory) in `.etat/`. The `cwd:` line
-  only serves v1-style relays, which are announced (less than 72 h after `/clear`, 12 h in a new tab).
-- `a-ranger.md`: durable proposals written in auto mode (Claude never touches the memory then). Kept,
-  never archived; filed into the memory only with your agreement.
-- After use a relay is renamed `.repris.md`: you keep a history of your relays.
-- It is a plain text file: you can read or correct it before typing `/clear`.
-
----
-
-## 7. Settings
-
-Since 1.2.0 the relay is **automatic**: at each threshold, Claude finishes the current request, then writes (or refreshes) the relay itself in a single file per conversation (`auto_<session>.md`). You only type `/clear` whenever you want. In auto mode Claude writes no memory file: durable proposals go to `a-ranger.md`.
-
-Six optional environment variables:
+Optional environment variables, for example in the `env` block of `~/.claude/settings.json`:
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `RELAIS_V2` | `1` | `0` = exact v1 behaviour (emergency switch, then restart Claude Code) |
-| `RELAIS_AUTO` | `1` | `0` = back to simple reminders (you type `/relais` yourself) |
-| `RELAIS_SEUIL_K` | `150` | First reminder, in thousands of tokens |
-| `RELAIS_SEUIL_FORT_K` | `250` | Insistent reminder |
-| `RELAIS_DELEGUER` | `1` | `0` = no note about delegating long tasks |
-| `RELAIS_LANG` | from the system | `en` or `fr` |
+| `RELAIS_SEUIL_K` | `150` | First threshold, in thousands of tokens |
+| `RELAIS_SEUIL_FORT_K` | `250` | Insistent threshold |
+| `RELAIS_AUTO` | on | `0` = simple reminders, you type `/relais` yourself |
+| `RELAIS_MEMOIRE` | on | `0` = do not reload the rules registry at session start |
+| `RELAIS_DELEGUER` | on | `0` = no delegation note |
+| `RELAIS_LANG` | system | `en` or `fr` |
+| `AVOCAT_MIN_CAR` | `200` | avocat: shorter answers with no action are not checked |
 
-The easiest place is the `env` block of `~/.claude/settings.json`:
-
-```json
-{
-  "env": {
-    "RELAIS_SEUIL_K": "120",
-    "RELAIS_LANG": "en"
-  }
-}
-```
-
-**Which threshold?** On the measured conversations: 100k = -83%, 150k = -79%, 250k = -71%. The lower
-the threshold, the more you save, but the more often you hand over. 150k is a good balance.
+**Which threshold?** On the measured conversations: 100k = -83%, 150k = -79%, 250k = -71%. Lower saves
+more but hands over more often.
 
 ---
 
-## 8. Measure your own savings
+## Troubleshooting
 
-The simulator replays your real past conversations (read-only, nothing is modified):
+- **No reminder ever shows.** Check `claude plugin list` and that the session was opened after the
+  install. Below 150k, silence is normal. Some editor extensions do not display hook messages: Claude
+  still gets the note.
+- **`node` not found.** Install Node.js 18+ and open a new terminal.
+- **Reminders or relays appear twice.** The plugin is installed twice (app + marketplace): keep one.
+- **The relay is not reloaded after `/clear`.** It is reloaded only if Claude wrote or refreshed it
+  shortly before; otherwise it is only announced. Say "resume the relay" to load it.
+- **"network-shaped" error.** See the external drive note in [Install](#install).
+- **Debug the hooks:** `claude --debug`, or `/debug` during a session.
 
-```
-node <plugin-path>/scripts/simuler-economie.mjs --top 5
-```
+## Limits
 
-It finds your 5 heaviest conversations in `~/.claude/projects/`, measures what a fresh session costs
-you, and prints the saving the relay would have given. For one specific conversation, with another
-threshold:
-
-```
-node <plugin-path>/scripts/simuler-economie.mjs <log.jsonl> 120
-```
-
-To see your real usage in dollars: [ccusage](https://github.com/ryoppippi/ccusage)
-(`npx ccusage@latest claude daily`).
-
----
-
-## 9. Privacy and security
-
-- **No network access.** None of the scripts opens a connection or sends anything.
-- **What is read**: the end of the conversation log Claude Code already keeps on your disk
-  (`~/.claude/projects/…`), only to read the token counter of the last response; and, read-only with a
-  3 s timeout, `git` in the project folder and in its memory folder (HEAD, changed files, deleted lines).
-  These calls neutralise every configuration option a trapped repository could use to run a program
-  (fsmonitor, filters, external diff, pager, hooks...) and never make git convert the working tree. Paths
-  cited in a relay are only checked if they are local (never `\\server\share`, nor URLs).
-- **What is written**: relay files in `~/.claude/relais/`, and tiny state files in
-  `~/.claude/relais/.etat/` (deleted after 7 days). Nothing else: the plugin **never writes in your
-  project nor in its memory**, and never undoes anything (its checks only warn).
-- **What is added to Claude's context**: a one-line note when a threshold is crossed, and the content
-  of a relay when you resume it.
-- A relay contains information about your project (paths, decisions). It stays on your machine.
-  Claude is instructed to put **no secrets** in it (password, token, key), but re-read it if your
-  project is sensitive.
-- On any error, the hooks stay silent: they **never** block a message or a session.
-- The code is a few short files in `scripts/`: read them before installing.
+- relais never clears the conversation for you: the saving depends on you typing `/clear` when the
+  relay is ready.
+- During a long autonomous run with no message from you, the gauge does not fire.
+- The summary is written by the model: re-read the relay for critical tasks.
+- The savings above are simulations on a real history, not a guarantee.
 
 ---
 
-## 10. relais, /compact or /clear?
+## Tests and license
 
-| | `/clear` alone | `/compact` | **relais** |
-|---|---|---|---|
-| Starting size afterwards | minimal | reduced, but the conversation keeps growing | minimal + summary |
-| Keeps the thread of the work | no | yes, automatic summary | yes, structured summary |
-| Warns you at the right time | no | no (automatic only near the window limit) | **yes, from 150k** |
-| Updates durable notes | no | no | only with your explicit agreement, additions only |
-| Readable, editable trace | no | no | yes, one file per relay |
-
-`/compact` is still useful in the middle of a long task. relais is mostly about **never letting a
-conversation grow unnoticed again**, which is where the bill really comes from.
-
----
-
-## 11. Troubleshooting
-
-**I never see a reminder.**
-Check `claude plugin list` (relais loaded?) and that the session was opened **after** installing.
-While the conversation stays under 150k, silence is normal. Some interfaces (editor extensions,
-third-party apps) do not display hook messages: Claude still receives the note and will suggest
-`/relais` itself.
-
-**`node` not found.**
-Install Node.js 18+ and check that `node --version` works in a new terminal.
-
-**`network-shaped` error when installing.**
-The plugin sits on an external or network drive: use the fallback install (section 4).
-
-**Reminders show up twice.**
-The plugin is installed twice (marketplace and fallback). Keep only one.
-
-**The relay is not reloaded after /clear.**
-v2 reloads only `auto_<id of the cleared session>.md`. Check that it exists in `~/.claude/relais/`
-(already used: `.repris.md` suffix). Other relays are only announced: say "resume the relay". If two
-sessions of the same folder are cleared within a few seconds, nothing is loaded (ambiguous), on purpose.
-
-**Debugging the hooks**: run `claude --debug`, or `/debug` during a session.
-
----
-
-## 12. Limits
-
-- relais **does not hand over for you**: that is deliberate, you stay in control. The saving depends
-  on your reflex to type `/relais` when it is suggested.
-- During a long autonomous run with no message from you, the gauge does not fire (it acts when you
-  write).
-- Summary quality depends on the model. The imposed format (60 lines, exact next step) limits losses,
-  but a detail can slip: re-read the relay for critical tasks.
-- The savings in section 3 are **simulations** on a real history, not a guarantee.
-
----
-
-## 13. Tests and license
+Each suite runs in a temporary folder, never in your real `~/.claude`:
 
 ```
-node plugins/relais/scripts/tester.mjs
+node plugins/relais/scripts/tester.mjs                 # 145 tests
+node plugins/avocat/scripts/tester.mjs                 # 17 tests
+node plugins/images/scripts/tester.mjs                 # 74 tests
+node plugins/images/scripts/tester-installation.mjs    # 106 tests
+node tableau/tester.mjs                                # 162 tests
 ```
 
-97 tests in a temporary folder with throw-away git repositories (never your real `~/.claude`): the 27
-v1 tests (run with `RELAIS_V2=0`), then v2: normal resume, two parallel sessions, `/clear` to change
-topic, SessionEnd/SessionStart race in both orders, relay without header, too long (Stop check and
-8,000-character budget), stale relay with git file list, deleted memory lines, `a-ranger.md`, secret
-without masking, missing path, `/relais` gets its exact file, trapped git repository, UNC path never probed, `cd` during the session, slow git. `RELAIS_V2=0 node scripts/tester.mjs`
-runs the v1 suite only.
+The video is made with Remotion: source in [video/](video/).
 
-MIT license.
+License: GPL-3.0-or-later (see [LICENSE](LICENSE)). Copyright (C) 2026 nathangerardeaux.
+Versions published before this change (relais 2.1.0 and earlier) remain available under the MIT license.

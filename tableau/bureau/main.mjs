@@ -13,8 +13,9 @@
 import { app, BrowserWindow, Menu, dialog, nativeTheme, screen, session } from 'electron';
 import fs from 'node:fs';
 import path from 'node:path';
-import { demarrerServeur } from '../serveur.mjs';
+import { demarrerServeur, lireAvocat } from '../serveur.mjs';
 import { catalogue, validerDepot } from '../catalogue.mjs';
+import { creerStatistiques } from '../statistiques.mjs';
 import { creerMisesAJour } from './mises-a-jour.mjs';
 import { tr } from '../langue.mjs';
 
@@ -90,9 +91,17 @@ const majs = creerMisesAJour({
   avantInstallation: () => arreterServeur(),
   automatique: !TEST,
 });
-const etatBureau = () => ({ version: app.getVersion(), empaquete: app.isPackaged, demarrage: etatDemarrage(), maj: majs.etat() });
+// Anonymous usage statistics, opt-in (docs/statistiques.md). The answer, the random id and the counters
+// live in the app's own profile folder (userData: survives updates). Never in test mode.
+const stats = creerStatistiques({ fichier: path.join(app.getPath('userData'), 'statistiques.json'), version: app.getVersion(), desactive: TEST,
+  sondes: { avocat: () => lireAvocat().actif } });
+const etatBureau = () => ({ version: app.getVersion(), empaquete: app.isPackaged, demarrage: etatDemarrage(), maj: majs.etat(), stats: stats.etat() });
 const bureau = {
   etat: etatBureau,
+  statsApercu: () => stats.apercu(),
+  statsReponse: (accepte) => { stats.repondre(accepte); return etatBureau(); },
+  statsOnglet: (cle) => stats.onglet(cle),
+  statsSupprimer: () => stats.supprimer(),
   demarrage: (actif) => {
     if (demarrageDisponible) app.setLoginItemSettings({ openAtLogin: actif, name: ID_APPLI });
     return etatBureau();
@@ -172,8 +181,18 @@ function creerFenetre() {
     },
   });
   fenetre.on('page-title-updated', (e) => e.preventDefault()); // keep « Relais »
-  fenetre.once('ready-to-show', () => { if (!TEST) fenetre.show(); });
-  fenetre.on('closed', () => { fenetre = null; });
+  // Relaunched by the installer after an update (--updated): Windows does not give the new process the
+  // foreground, so the window opened behind the others and looked like it never started (seen on 1.0.6).
+  fenetre.once('ready-to-show', () => {
+    if (TEST) return;
+    fenetre.show();
+    if (process.argv.includes('--updated')) { fenetre.moveTop(); fenetre.focus(); }
+    stats.focus(fenetre.isFocused());
+  });
+  // Time with the window in the foreground (statistics, only counted after a "yes").
+  for (const evenement of ['focus', 'restore', 'show']) fenetre.on(evenement, () => stats.focus(fenetre?.isFocused() === true));
+  for (const evenement of ['blur', 'minimize', 'hide']) fenetre.on(evenement, () => stats.focus(false));
+  fenetre.on('closed', () => { fenetre = null; stats.focus(false); });
 
   if (TEST) {
     const delai = setTimeout(() => echec('test fumée : délai de 30 s dépassé.'), 30000);
@@ -213,6 +232,7 @@ async function lancer() {
   origine = new URL(serveur.url).origin;
   verrouillerSession();
   creerFenetre();
+  stats.demarrer(); // counts this launch and plans the sends, only if the user said yes
   const d = serveur.depot;
   if (!d?.ok) {
     const message = tr({
@@ -239,6 +259,6 @@ if (!TEST && !app.requestSingleInstanceLock()) {
     fenetre.focus();
   });
   app.on('window-all-closed', async () => { await arreterServeur(); app.quit(); }); // closing the window = quit
-  app.on('before-quit', () => { arreterServeur(); });
+  app.on('before-quit', () => { stats.fermer(); arreterServeur(); });
   app.whenReady().then(lancer);
 }

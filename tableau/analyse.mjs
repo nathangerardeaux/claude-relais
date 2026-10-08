@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tr } from './langue.mjs';
+import { Historique } from './historique.mjs';
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 export const dossierClaude = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -14,11 +15,18 @@ let dossierCompte = '';
 export const definirDossierProjets = (p) => { dossierCompte = p || ''; };
 export const dossierProjets = () => process.env.TABLEAU_PROJETS || dossierCompte || path.join(dossierClaude(), 'projects');
 const FICHIER_CACHE = () => process.env.TABLEAU_CACHE || path.join(ici, '.cache', 'index.json');
-const VERSION_CACHE = 3; // bump when the parsed state changes shape: everything is re-read once
+// Next to the cache but a file of its own: the index can be rebuilt at any time, the history must not be lost.
+const fichierHistorique = () => path.join(path.dirname(FICHIER_CACHE()), 'historique.json');
+const VERSION_CACHE = 4; // bump when the parsed state changes shape: everything is re-read once
 
 const MAX_POINTS = 1200;  // context curve kept per conversation (peaks preserved)
 const MAX_TEXTE = 160;    // prompt excerpt kept per turn
 const OUTILS_ACTION = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'Bash', 'PowerShell']);
+const FENETRE_RECENT = 2 * 3600e3;  // model calls kept per log for the live view (older ones are dropped)
+const MAX_RECENT = 2000;
+const SEUIL_GROS = 8000;  // a tool result of at least this many characters (~2k tokens) is remembered
+const MAX_GROS = 10;      // ... the biggest ones, per conversation
+export const SEUIL_RELAIS = 150000;
 
 // ---------------------------------------------------------------- parsing one log
 
@@ -29,8 +37,17 @@ export function nouvelEtat() {
     modeles: {}, jours: {}, outils: {}, tours: [],
     courbe: [], pas: 1, seau: 0, nSeau: 0, ctxFin: 0, ctxMax: 0,
     vus: [], attente: {},
+    // per local day: split, tokens per hour, per model and context peak (day detail, analysis)
+    det: {},
+    recent: [],   // [timestamp ms, tokens] of the latest model calls (live view)
+    ctx0: 0,      // context of the first answer: what a fresh conversation already weighs
+    socle: null,  // what the starting context is made of, in characters (instruction files, skills list, MCP...)
+    gros: [],     // the biggest tool results: { nom, quoi, car, t }
+    compactions: [], // { t, auto, avant }
   };
 }
+
+const nouveauJour = () => ({ in: 0, out: 0, read: 0, create: 0, appels: 0, h: {}, mod: {}, ctxMax: 0 });
 
 const jourLocal = (ts) => {
   const d = new Date(ts);
@@ -94,6 +111,53 @@ function tourCourant(e, ts) {
   return e.tours[e.tours.length - 1];
 }
 
+// What a tool call was about, very short (file, command...): shown next to the biggest results.
+function quoiCourt(b) {
+  const i = b.input && typeof b.input === 'object' ? b.input : {};
+  const v = i.file_path || i.notebook_path || i.command || i.pattern || i.url || i.query || i.skill || i.description || i.prompt || '';
+  return String(v).replace(/\s+/g, ' ').trim().slice(0, 90);
+}
+
+// Keeps the biggest tool results of the conversation (a big result stays in the context, read again at every call).
+function noterGros(e, g) {
+  if (g.car < SEUIL_GROS) return;
+  e.gros.push(g);
+  if (e.gros.length > MAX_GROS * 2) { e.gros.sort((a, b) => b.car - a.car); e.gros.length = MAX_GROS; }
+}
+
+// Size (characters) of what the starting context is made of, read from the "attachment" lines written before
+// the first answer: instruction files (CLAUDE.md, memory), skills list, agents list, MCP instructions...
+const lg = (x) => (typeof x === 'string' ? x.length : x == null ? 0 : JSON.stringify(x).length);
+function capterSocle(e, a) {
+  if (!a || typeof a !== 'object') return;
+  const cle = { skill_listing: 'skills', agent_listing_delta: 'agents', mcp_instructions_delta: 'mcp', deferred_tools_delta: 'outils',
+    hook_additional_context: 'hooks', session_context: 'session' }[a.type];
+  if (!cle && a.type !== 'instructions') return;
+  const s = (e.socle ||= { instr: 0, skills: 0, agents: 0, mcp: 0, outils: 0, hooks: 0, session: 0, nSkills: 0, fichiers: [] });
+  if (a.type === 'instructions') {
+    for (const f of Array.isArray(a.files) ? a.files : []) {
+      const car = lg(f?.content);
+      s.instr += car;
+      if (car && f?.path) s.fichiers.push({ p: String(f.path).slice(0, 260), type: String(f.type || '').slice(0, 20), car });
+    }
+    s.fichiers.sort((x, y) => y.car - x.car); s.fichiers.length = Math.min(s.fichiers.length, 8);
+    return;
+  }
+  const brut = { skills: a.content, agents: a.addedLines, mcp: a.addedBlocks, outils: a.addedLines, hooks: a.content, session: a.context }[cle];
+  s[cle] += lg(brut);
+  if (cle === 'skills' && a.skillCount) s.nSkills = Number(a.skillCount) || 0;
+}
+
+// Model calls of the last hours, to measure the live rate. Old ones are dropped as new ones arrive.
+function noterRecent(e, ms, tokens) {
+  const r = e.recent;
+  r.push([ms, tokens]);
+  if (r.length > 256) {
+    e.recent = r.filter((x) => x[0] >= ms - FENETRE_RECENT);
+    if (e.recent.length > MAX_RECENT) e.recent = e.recent.slice(-MAX_RECENT);
+  }
+}
+
 export function lireLigne(e, l) {
   // Cheap skip of the bulky bookkeeping lines.
   if (l.startsWith('{"type":"file-history') || l.startsWith('{"type":"queue-operation"')) return;
@@ -104,6 +168,13 @@ export function lireLigne(e, l) {
   if (o.cwd && !e.cwd) e.cwd = String(o.cwd);
   if (o.type === 'ai-title' && o.aiTitle) { e.titreIA = String(o.aiTitle).slice(0, 200); return; }
   if (o.type === 'custom-title' && o.customTitle) { e.titrePerso = String(o.customTitle).slice(0, 200); return; }
+  if (o.type === 'attachment') { if (!e.ctx0) capterSocle(e, o.attachment); return; }
+  if (o.type === 'system') {
+    if (o.subtype === 'compact_boundary' && e.compactions.length < 50) {
+      e.compactions.push({ t: ts, auto: o.compactMetadata?.trigger === 'auto', avant: Number(o.compactMetadata?.preTokens) || 0 });
+    }
+    return;
+  }
 
   if (o.type === 'user') {
     const p = textePrompt(o);
@@ -116,11 +187,13 @@ export function lireLigne(e, l) {
     if (Array.isArray(c)) {
       for (const b of c) {
         if (b?.type !== 'tool_result') continue;
-        const nom = e.attente[b.tool_use_id];
-        if (!nom) continue;
+        const w = e.attente[b.tool_use_id];
+        if (!w) continue;
         delete e.attente[b.tool_use_id];
-        const x = (e.outils[nom] ||= { appels: 0, car: 0 });
-        x.car += tailleResultat(b);
+        const x = (e.outils[w.n] ||= { appels: 0, car: 0 });
+        const car = tailleResultat(b);
+        x.car += car;
+        noterGros(e, { nom: w.n, quoi: w.q, car, t: ts });
       }
     }
     return;
@@ -139,9 +212,21 @@ export function lireLigne(e, l) {
     for (const cible of [e.tot, mod, tour]) {
       cible.in += v.in; cible.out += v.out; cible.read += v.read; cible.create += v.create; cible.appels += 1;
     }
-    const j = jourLocal(ts);
-    if (j) e.jours[j] = (e.jours[j] || 0) + v.in + v.out + v.read + v.create;
     const ctx = v.in + v.read + v.create;
+    const tokens = ctx + v.out;
+    const j = jourLocal(ts);
+    if (j) {
+      e.jours[j] = (e.jours[j] || 0) + tokens;
+      const dj = (e.det[j] ||= nouveauJour());
+      dj.in += v.in; dj.out += v.out; dj.read += v.read; dj.create += v.create; dj.appels += 1;
+      const hh = new Date(ts).getHours();
+      dj.h[hh] = (dj.h[hh] || 0) + tokens;
+      const nm = m.model || '?';
+      dj.mod[nm] = (dj.mod[nm] || 0) + tokens;
+      dj.ctxMax = Math.max(dj.ctxMax, ctx);
+      noterRecent(e, Date.parse(ts), tokens);
+    }
+    if (!e.ctx0) e.ctx0 = ctx;
     tour.ctx = ctx; e.ctxFin = ctx; e.ctxMax = Math.max(e.ctxMax, ctx);
     pointCourbe(e, ctx);
   }
@@ -151,7 +236,7 @@ export function lireLigne(e, l) {
     (e.outils[nom] ||= { appels: 0, car: 0 }).appels += 1;
     tour.outils[nom] = (tour.outils[nom] || 0) + 1;
     if (OUTILS_ACTION.has(b.name)) tour.actions += 1;
-    if (b.id) e.attente[b.id] = nom;
+    if (b.id) e.attente[b.id] = { n: nom, q: quoiCourt(b) };
   }
   // Tool calls left without a result (interrupted session) must not pile up forever.
   const cles = Object.keys(e.attente);
@@ -258,7 +343,11 @@ export function detailTour(fichier, numero) {
 export class Index {
   constructor() {
     this.fichiers = {};      // path -> { taille, mtime, offset, etat, meta? }
+    this.historique = new Historique(fichierHistorique()); // compact daily totals, kept after Claude Code deletes old logs
     this.enCours = false;
+    this.rapide = false;         // a quick refresh of the live view is running
+    this.dernierListage = 0;     // last time the folders were listed by the quick refresh
+    this.sauveLe = Date.now();
     this.progres = { fait: 0, total: 0, depuis: 0 };
     this.chargerCache();
   }
@@ -273,6 +362,8 @@ export class Index {
   sauverCache() {
     try {
       fs.mkdirSync(path.dirname(FICHIER_CACHE()), { recursive: true });
+      const limite = Date.now() - 3 * 3600e3; // the live window only needs the last hours
+      for (const c of Object.values(this.fichiers)) if (c.etat?.recent?.length) c.etat.recent = c.etat.recent.filter((x) => x[0] >= limite);
       const tmp = `${FICHIER_CACHE()}.tmp`;
       fs.writeFileSync(tmp, JSON.stringify({ version: VERSION_CACHE, fichiers: this.fichiers }));
       fs.renameSync(tmp, FICHIER_CACHE());
@@ -303,7 +394,7 @@ export class Index {
   }
 
   async mettreAJour() {
-    if (this.enCours) return;
+    if (this.enCours || this.rapide) return;
     this.enCours = true;
     try {
       const liste = this.lister();
@@ -324,7 +415,7 @@ export class Index {
         this.progres.fait += 1;
         if (Date.now() - dernierSave > 5000) { this.sauverCache(); dernierSave = Date.now(); }
       }
-      if (aLire.length) this.sauverCache();
+      if (aLire.length) { this.sauverCache(); this.historiser(); }
     } finally { this.enCours = false; }
   }
 
@@ -399,12 +490,297 @@ export class Index {
     };
   }
 
+  // Records the daily totals in the history file (see historique.mjs): they outlive the logs themselves.
+  historiser() {
+    try { this.historique.fusionner(this.agregats().vivant); } catch { /* the history is a bonus, never a reason to fail */ }
+  }
+
+  // ------------------------------------------------------------ live view
+
+  // Quick refresh: looks at the size / date of the logs and parses ONLY the new bytes of those that changed
+  // (the offset of each log is kept). Between two full listings (every 15 s, to find new logs) only the logs
+  // touched in the last 6 hours are looked at. Skipped while the full pass runs. `complet`: list everything now.
+  async actualiserRapide({ complet = false } = {}) {
+    if (this.enCours || this.rapide) return { relus: [], saute: true };
+    this.rapide = true;
+    const relus = [];
+    try {
+      const maintenant = Date.now();
+      let candidats;
+      if (complet || maintenant - this.dernierListage > 15000) { candidats = this.lister(); this.dernierListage = maintenant; }
+      else {
+        const limite = maintenant - 6 * 3600e3;
+        candidats = Object.entries(this.fichiers).filter(([, c]) => c.mtime > limite)
+          .map(([p, c]) => ({ p, dossier: c.dossier, session: c.session, ...(c.agent ? { agent: c.agent } : {}) }));
+      }
+      for (const x of candidats) {
+        let st; try { st = fs.statSync(x.p); } catch { continue; }
+        const c = this.fichiers[x.p];
+        if (c && c.taille === st.size && c.mtime === st.mtimeMs) continue;
+        try { await this.lireUn({ ...x, taille: st.size, mtime: st.mtimeMs }); relus.push(x.p); } catch { /* unreadable log: skipped */ }
+      }
+      if (relus.length && Date.now() - this.sauveLe > 30000) { this.sauverCache(); this.historiser(); this.sauveLe = Date.now(); }
+    } finally { this.rapide = false; }
+    return { relus, saute: false };
+  }
+
+  // What is happening now: tokens of the last 5 / 60 minutes, rate, one bucket per minute, conversations
+  // written to in the last 5 minutes (with their current context), today and the recent days.
+  direct(maintenant = Date.now()) {
+    const FEN5 = 5 * 60e3; const FEN60 = 60 * 60e3;
+    let tokens5 = 0; let tokens60 = 0;
+    const minutes = new Array(60).fill(0);
+    const actives = [];
+    for (const [id, { principal, agents }] of this.sessions()) {
+      const fichiers = [principal, ...agents].filter(Boolean);
+      let t5 = 0; let derniere = 0;
+      for (const c of fichiers) {
+        for (const [ms, tk] of c.etat.recent || []) {
+          const age = maintenant - ms;
+          if (age < -60e3 || age >= FEN60) continue; // a few seconds of clock drift are tolerated
+          const a = Math.max(0, age);
+          tokens60 += tk; minutes[59 - Math.floor(a / 60000)] += tk;
+          if (a < FEN5) { tokens5 += tk; t5 += tk; }
+        }
+        if (maintenant - c.mtime < FEN5) derniere = Math.max(derniere, c.mtime);
+      }
+      if (!derniere || !principal) continue;
+      const e = principal.etat;
+      actives.push({ id, titre: titreDe(e), projet: nomProjet(e.cwd, principal.dossier), ctx: e.ctxFin, ctxMax: e.ctxMax,
+        tokens5: t5, derniere: new Date(derniere).toISOString(), alerte: e.ctxFin > SEUIL_RELAIS });
+    }
+    actives.sort((a, b) => b.derniere.localeCompare(a.derniere));
+    const aujourdhui = jourLocal(maintenant);
+    const depuis = jourMoins(aujourdhui, 30);
+    const jours = {};
+    for (const [j, n] of Object.entries(this.vue().jours)) if (j >= depuis) jours[j] = n;
+    return { maintenant: new Date(maintenant).toISOString(), tokens5, tokens60, debit: Math.round(tokens5 / 5), minutes, actives,
+      aujourdhui: jours[aujourdhui] || 0, jours, indexation: this.enCours };
+  }
+
+  // ------------------------------------------------------------ a day, a week, a month
+
+  // Per local day, from the logs on disk: split, subagent tokens, number of conversations, tokens per project and
+  // per model. With a range (`de`, `a`) it also returns the conversations active in it, with their own figures.
+  agregats(de = '', a = '') {
+    const vivant = {}; const convs = [];
+    const jourVide = () => ({ in: 0, out: 0, read: 0, create: 0, appels: 0, agents: 0, sess: new Set(), projets: {}, modeles: {}, h: {} });
+    for (const [id, { principal, agents }] of this.sessions()) {
+      const c0 = principal || agents[0];
+      if (!c0) continue;
+      const projet = nomProjet(c0.etat.cwd, c0.dossier);
+      const tp = { in: 0, out: 0, read: 0, create: 0, appels: 0 }; const ta = { in: 0, out: 0, read: 0, create: 0, appels: 0 };
+      const mod = {}; let ctxMax = 0; let actif = false;
+      for (const c of [principal, ...agents]) {
+        if (!c) continue;
+        const estAgent = c !== principal;
+        for (const [j, d] of Object.entries(c.etat.det)) {
+          const v = (vivant[j] ||= jourVide());
+          const tk = d.in + d.out + d.read + d.create;
+          ajouter(v, d); v.sess.add(id);
+          if (estAgent) v.agents += tk;
+          v.projets[projet] = (v.projets[projet] || 0) + tk;
+          for (const [m, n] of Object.entries(d.mod)) v.modeles[m] = (v.modeles[m] || 0) + n;
+          for (const [hh, n] of Object.entries(d.h)) v.h[hh] = (v.h[hh] || 0) + n;
+          if (!de || j < de || j > a) continue;
+          actif = true;
+          ajouter(estAgent ? ta : tp, d);
+          if (!estAgent) ctxMax = Math.max(ctxMax, d.ctxMax);
+          for (const [m, n] of Object.entries(d.mod)) mod[m] = (mod[m] || 0) + n;
+        }
+      }
+      if (!actif) continue;
+      const tout = somme([tp, ta]);
+      convs.push({ id, titre: titreDe(c0.etat), projet, cwd: c0.etat.cwd || c0.dossier, tot: tout, total: total(tout), agents: total(ta),
+        partAgents: total(tout) ? total(ta) / total(tout) : 0, appels: tout.appels, ctxMax, ouvrable: !!principal,
+        modeles: Object.entries(mod).map(([nom, tokens]) => ({ nom, tokens })).sort((x, y) => y.tokens - x.tokens) });
+    }
+    for (const v of Object.values(vivant)) { v.total = v.in + v.out + v.read + v.create; v.conversations = v.sess.size; delete v.sess; }
+    return { vivant, convs };
+  }
+
+  // Everything used between two local days (YYYY-MM-DD, both included): split, bars (per hour for one day,
+  // per day otherwise), conversations (by tokens used in that period), projects, models. A day whose logs are
+  // gone (or partly gone) is taken from the history file: totals only, flagged `detailPartiel`.
+  periode(de, a) {
+    const unJour = de === a;
+    const { vivant, convs } = this.agregats(de, a);
+    const tot = { in: 0, out: 0, read: 0, create: 0, appels: 0 };
+    const parModele = {}; const parProjet = {}; const parBarre = {};
+    let detailPartiel = false; let agentsTot = 0;
+    const jours = new Set([...Object.keys(vivant), ...Object.keys(this.historique.jours)].filter((j) => j >= de && j <= a));
+    for (const j of jours) {
+      const v = vivant[j]; const hs = this.historique.jours[j];
+      const d = hs && hs.total > (v?.total || 0) ? hs : v; // the history keeps the larger (more complete) record
+      if (d === hs) detailPartiel = true;
+      ajouter(tot, d); agentsTot += d.agents || 0;
+      for (const [m, n] of Object.entries(d.modeles || {})) parModele[m] = (parModele[m] || 0) + n;
+      for (const [nom, n] of Object.entries(d.projets || {})) {
+        const p = (parProjet[nom] ||= { nom, conversations: 0, total: 0 });
+        p.total += n;
+      }
+      if (unJour) { for (const [hh, n] of Object.entries(v?.h || {})) parBarre[hh] = (parBarre[hh] || 0) + n; }
+      else parBarre[j] = d.total;
+    }
+    for (const c of convs) if (parProjet[c.projet]) parProjet[c.projet].conversations += 1;
+    convs.sort((x, y) => y.total - x.total);
+    let barres;
+    if (unJour) barres = Array.from({ length: 24 }, (_, i) => ({ cle: String(i), tokens: parBarre[i] || 0 }));
+    else {
+      barres = [];
+      for (let j = de; j <= a && barres.length < 400; j = jourMoins(j, -1)) barres.push({ cle: j, tokens: parBarre[j] || 0 });
+    }
+    return {
+      de, a, granularite: unJour ? 'heure' : 'jour', barres, tot, total: total(tot), agents: agentsTot, detailPartiel,
+      nConversations: convs.length, conversations: convs.slice(0, 200),
+      projets: Object.values(parProjet).sort((x, y) => y.total - x.total),
+      modeles: Object.entries(parModele).map(([nom, tokens]) => ({ nom, tokens })).sort((x, y) => y.tokens - x.tokens),
+    };
+  }
+
+  // ------------------------------------------------------------ "why so many tokens?"
+
+  // Ranked findings over the last `nbJours` days (ending at local day `fin`), computed from the parsed logs
+  // only: nothing is sent anywhere, no model is called. Each finding carries its numbers; the page words them.
+  analyser(nbJours = 30, fin = jourLocal(Date.now())) {
+    const de = jourMoins(fin, nbJours - 1);
+    const dansJour = (j) => j >= de && j <= fin;
+    const dansTs = (ts) => { const j = jourLocal(ts); return !!j && dansJour(j); };
+    const vide = () => ({ in: 0, out: 0, read: 0, create: 0, appels: 0 });
+    const fichiersActifs = [];  // every log with activity in the period
+    const convs = [];
+    const tot = vide(); const parModele = {};
+    for (const [id, { principal, agents }] of this.sessions()) {
+      const rec = { id, principal, agents, tp: vide(), ta: vide(), ctxMax: 0, actif: false, types: {} };
+      for (const c of [principal, ...agents]) {
+        if (!c) continue;
+        const estAgent = c !== principal;
+        const mine = vide(); let ctxMax = 0;
+        for (const [j, d] of Object.entries(c.etat.det)) {
+          if (!dansJour(j)) continue;
+          ajouter(mine, d); ctxMax = Math.max(ctxMax, d.ctxMax);
+          for (const [m, n] of Object.entries(d.mod)) parModele[m] = (parModele[m] || 0) + n;
+        }
+        if (!mine.appels && !total(mine)) continue;
+        rec.actif = true; ajouter(estAgent ? rec.ta : rec.tp, mine); ajouter(tot, mine);
+        if (!estAgent) rec.ctxMax = ctxMax;
+        else { const ty = c.meta?.agentType || 'agent'; rec.types[ty] = (rec.types[ty] || 0) + total(mine); }
+        fichiersActifs.push({ c, appels: mine.appels, estAgent });
+      }
+      if (rec.actif) convs.push(rec);
+    }
+    const tokens = total(tot);
+    const res = { jours: nbJours, de, a: fin, conversations: convs.length, tokens, tot, constats: [] };
+    if (!tokens) return res;
+    const part = (n) => Math.min(1, n / tokens);
+    const ajoutC = (id, poids, donnees) => res.constats.push({ id, poids: Math.round(poids), part: part(poids), gravite: part(poids) >= 0.3 ? 'haute' : part(poids) >= 0.1 ? 'moyenne' : 'info', donnees });
+    const principaux = convs.filter((r) => r.principal);
+    const info = (r) => ({ id: r.id, titre: titreDe(r.principal.etat), projet: nomProjet(r.principal.etat.cwd, r.principal.dossier) });
+    const mediane = (v) => { const s = [...v].sort((x, y) => x - y); return s.length ? s[Math.floor(s.length / 2)] : 0; };
+
+    // 1. history re-read from the cache at every call
+    ajoutC('relus', tot.read, { read: tot.read, appels: tot.appels, parAppel: tot.appels ? Math.round(tot.read / tot.appels) : 0 });
+
+    // 2. conversations that went past the relay threshold, and what the relay would have saved
+    const ctx0s = principaux.map((r) => r.principal.etat.ctx0).filter((x) => x > 0);
+    const socleMes = ctx0s.length ? mediane(ctx0s) : 40000;
+    const lourdes = principaux.filter((r) => r.ctxMax > SEUIL_RELAIS);
+    if (lourdes.length) {
+      let reel = 0; let simule = 0; let relais = 0; let tk = 0;
+      const liste = lourdes.map((r) => {
+        const s = simulerRelais(r.principal.etat.tours, socleMes, SEUIL_RELAIS, (t) => dansTs(t.t));
+        reel += s.reel; simule += s.simule; relais += s.relais; tk += total(r.tp);
+        return { ...info(r), ctxMax: r.ctxMax, tokens: total(r.tp), reel: Math.round(s.reel), simule: Math.round(s.simule), relais: s.relais };
+      }).sort((x, y) => (y.reel - y.simule) - (x.reel - x.simule));
+      ajoutC('lourdes', tk, { n: lourdes.length, tokens: tk, reel: Math.round(reel), simule: Math.round(simule), economie: Math.round(reel - simule),
+        pctEco: reel ? Math.round((1 - simule / reel) * 100) : 0, relais, seuil: SEUIL_RELAIS, socle: Math.round(socleMes), top: liste.slice(0, 5) });
+    }
+
+    // 3. the context every conversation starts with, re-read at every call
+    if (ctx0s.length) {
+      const parts = {};
+      for (const cle of ['instr', 'skills', 'agents', 'mcp', 'outils', 'hooks', 'session']) {
+        const v = principaux.map((r) => r.principal.etat.socle?.[cle]).filter((x) => x > 0);
+        parts[cle] = v.length ? Math.round(mediane(v) / 4) : 0;
+      }
+      const med = Math.round(mediane(ctx0s));
+      const connus = Object.values(parts).reduce((x, y) => x + y, 0);
+      parts.systeme = Math.max(0, med - connus);
+      const fich = new Map();
+      for (const r of principaux) for (const f of r.principal.etat.socle?.fichiers || []) {
+        const x = fich.get(f.p) || { p: f.p, type: f.type, tokens: 0, n: 0 };
+        x.tokens = Math.max(x.tokens, Math.round(f.car / 4)); x.n += 1; fich.set(f.p, x);
+      }
+      let poids = 0;
+      for (const f of fichiersActifs) if (f.c.etat.ctx0) poids += f.c.etat.ctx0 * f.appels;
+      // what you can act on: the biggest detected part (the rest is Claude Code's own prompt and tool definitions)
+      const reglables = Object.entries(parts).filter(([k, v]) => k !== 'systeme' && v > 0).sort((x, y) => y[1] - x[1]);
+      ajoutC('socle', Math.min(poids, tokens), { n: ctx0s.length, mediane: med, p90: [...ctx0s].sort((x, y) => x - y)[Math.floor(ctx0s.length * 0.9)],
+        parts, dominant: reglables.length ? reglables[0][0] : 'systeme', fichiers: [...fich.values()].sort((x, y) => y.tokens - x.tokens).slice(0, 5),
+        nSkills: Math.max(0, ...principaux.map((r) => r.principal.etat.socle?.nSkills || 0)) });
+    }
+
+    // 4. tool calls: how many per conversation, and the heaviest results
+    let appelsTot = 0; const frequentes = [];
+    for (const r of principaux) {
+      let n = 0;
+      for (const t of r.principal.etat.tours) if (dansTs(t.t)) for (const v of Object.values(t.outils)) n += v;
+      appelsTot += n;
+      if (n >= 100) frequentes.push({ ...info(r), appels: n, tokens: total(r.tp) });
+    }
+    if (appelsTot) {
+      frequentes.sort((x, y) => y.appels - x.appels);
+      ajoutC('appels', frequentes.reduce((x, y) => x + y.tokens, 0), { appels: appelsTot, n: principaux.length, parConversation: Math.round(appelsTot / principaux.length),
+        nFrequentes: frequentes.length, top: frequentes.slice(0, 5) });
+    }
+    const gros = [];
+    for (const r of principaux) for (const g of r.principal.etat.gros) if (dansTs(g.t)) gros.push({ nom: g.nom, quoi: g.quoi, tokens: Math.round(g.car / 4), ...info(r) });
+    if (gros.length) {
+      gros.sort((x, y) => y.tokens - x.tokens);
+      ajoutC('gros', gros.reduce((x, y) => x + y.tokens, 0), { n: gros.length, nTresGros: gros.filter((g) => g.tokens >= 10000).length, top: gros.slice(0, 6) });
+    }
+
+    // 5. subagents
+    const totA = vide(); const types = {};
+    for (const r of convs) { ajouter(totA, r.ta); for (const [k, v] of Object.entries(r.types)) types[k] = (types[k] || 0) + v; }
+    if (total(totA)) {
+      ajoutC('agents', total(totA), { tokens: total(totA), appels: totA.appels, n: fichiersActifs.filter((f) => f.estAgent).length,
+        types: Object.entries(types).map(([type, tk]) => ({ type, tokens: tk })).sort((x, y) => y.tokens - x.tokens).slice(0, 4) });
+    }
+
+    // 6. model mix
+    const familles = {};
+    for (const [m, n] of Object.entries(parModele)) { const f = familleModele(m); familles[f] = (familles[f] || 0) + n; }
+    const listeF = Object.entries(familles).map(([famille, tk]) => ({ famille, tokens: tk, part: tk / tokens })).sort((x, y) => y.tokens - x.tokens);
+    ajoutC('modeles', familles.opus || 0, { familles: listeF, opus: familles.opus || 0 });
+
+    // 7. compactions and very long sessions
+    let auto = 0; let manuelles = 0;
+    const longues = [];
+    for (const r of principaux) {
+      const e = r.principal.etat;
+      for (const k of e.compactions) if (dansTs(k.t)) { if (k.auto) auto += 1; else manuelles += 1; }
+      const messages = e.tours.filter((t) => t.texte !== DEBUT_TOUR).length;
+      const heures = e.debut && e.fin ? (new Date(e.fin) - new Date(e.debut)) / 3600e3 : 0;
+      if (messages >= 60 || heures >= 48) longues.push({ ...info(r), messages, heures: Math.round(heures), tokens: total(r.tp) });
+    }
+    if (auto || manuelles || longues.length) {
+      longues.sort((x, y) => y.tokens - x.tokens);
+      ajoutC('longues', longues.reduce((x, y) => x + y.tokens, 0), { auto, manuelles, n: longues.length, top: longues.slice(0, 5) });
+    }
+
+    res.constats.sort((x, y) => y.poids - x.poids);
+    return res;
+  }
+
   vue() {
     const jours = {}; const projets = {};
     for (const c of Object.values(this.fichiers)) {
       if (!c.etat) continue;
       for (const [j, n] of Object.entries(c.etat.jours)) jours[j] = (jours[j] || 0) + n;
     }
+    // a day whose logs were (partly) deleted keeps the larger total recorded in the history
+    for (const [j, d] of Object.entries(this.historique.jours)) if (d.total > (jours[j] || 0)) jours[j] = d.total;
     for (const [, { principal: c, agents }] of this.sessions()) {
       if (!c) continue;
       const nom = nomProjet(c.etat.cwd, c.dossier);
@@ -423,4 +799,36 @@ function somme(liste) { const t = { in: 0, out: 0, read: 0, create: 0, appels: 0
 function nomProjet(cwd, dossier) {
   const s = String(cwd || '').replace(/[\\/]+$/, '');
   return s ? s.split(/[\\/]/).pop() || s : dossier;
+}
+
+const DEBUT_TOUR = '(début)';
+export const titreDe = (e) => e.titrePerso || e.titreIA || e.premierPrompt || '(sans titre)';
+// Local day key `n` days before `cle` (negative n = after), by calendar arithmetic (daylight saving safe).
+export function jourMoins(cle, n) {
+  const [y, m, j] = cle.split('-').map(Number);
+  return jourLocal(new Date(y, m - 1, j - n, 12));
+}
+export function familleModele(nom) {
+  const m = String(nom).toLowerCase();
+  return m.includes('opus') ? 'opus' : m.includes('sonnet') ? 'sonnet' : m.includes('haiku') ? 'haiku' : 'autre';
+}
+
+// What the relay would have saved on one conversation: same rule as plugins/relais/scripts/simuler-economie.mjs
+// (once the context passes `seuil` and you send a message, the simulation restarts from a fresh session of
+// `socle` tokens), but run on the turns already parsed (average context of the turn's calls) instead of re-reading
+// the log. Counts tokens re-read per call, not dollars. `compter(tour)` selects the turns that are counted
+// (the period), the simulation itself runs over the whole conversation.
+export function simulerRelais(tours, socle, seuil = SEUIL_RELAIS, compter = () => true) {
+  let reel = 0; let simule = 0; let relais = 0; let n = 0; let base = null; let dernier = 0; let demande = false;
+  for (const t of tours) {
+    const humain = t.texte !== DEBUT_TOUR && !t.texte.startsWith('/') && t.texte !== '[résumé /compact]' && t.texte !== "[notification d'une tâche de fond]";
+    if (humain && dernier - (base ?? 0) + socle > seuil) demande = true;
+    if (!t.appels) continue;
+    const ctx = (t.in + t.read + t.create) / t.appels;
+    if (base === null || ctx < base) base = Math.max(0, ctx - socle); // original compaction: re-anchor
+    if (demande) { base = Math.max(0, ctx - socle); if (compter(t)) relais += 1; demande = false; }
+    if (compter(t)) { n += t.appels; reel += ctx * t.appels; simule += Math.max(socle, ctx - base) * t.appels; }
+    dernier = t.ctx || ctx;
+  }
+  return { n, reel, simule, relais };
 }

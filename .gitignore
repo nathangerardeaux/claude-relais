@@ -6,3 +6,4 @@ dist/
 .caches/
 tableau/bureau/depot.json
 .claude/skills/remotion-*/
+.playwright-mcp/

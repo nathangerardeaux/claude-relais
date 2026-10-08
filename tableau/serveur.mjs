@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { Index, detailTour, dossierClaude, dossierProjets, definirDossierProjets } from './analyse.mjs';
+import { Index, detailTour, dossierClaude, dossierProjets, definirDossierProjets, jourMoins } from './analyse.mjs';
 import { compte } from './compte.mjs';
 import { catalogue, installer, definirDepot } from './catalogue.mjs';
 import { skillsExternes } from './skills-externes.mjs';
@@ -21,7 +21,7 @@ const ici = path.dirname(fileURLToPath(import.meta.url));
 
 // Same file as plugins/avocat/scripts/commun.mjs (the Stop hook reads it).
 const fichierAvocat = () => process.env.AVOCAT_ETAT || path.join(dossierClaude(), 'avocat', 'etat.json');
-function lireAvocat() {
+export function lireAvocat() {
   try { const e = JSON.parse(fs.readFileSync(fichierAvocat(), 'utf8')); return { actif: e?.actif === true, depuis: e?.depuis || '' }; }
   catch { return { actif: false, depuis: '' }; }
 }
@@ -36,6 +36,7 @@ function ecrireAvocat(actif) {
 const ERREURS = {
   refusee: { fr: 'Requête refusée.', en: 'Request refused.' },
   actif: { fr: 'Paramètre "actif" attendu.', en: 'Parameter "actif" expected.' },
+  accepte: { fr: 'Paramètre "accepte" attendu.', en: 'Parameter "accepte" expected.' },
   nom: { fr: 'Paramètre "nom" attendu.', en: 'Parameter "nom" expected.' },
   json: { fr: 'Corps JSON attendu.', en: 'JSON body expected.' },
   occupe: { fr: 'Claude répond déjà à un message : attends la fin ou arrête-le.', en: 'Claude is already answering a message: wait for the end or stop it.' },
@@ -43,15 +44,19 @@ const ERREURS = {
   connexion: { fr: "Connecte-toi à Claude Code d'abord.", en: 'Sign in to Claude Code first.' },
   conversation: { fr: 'Conversation introuvable.', en: 'Conversation not found.' },
   message: { fr: 'Message introuvable.', en: 'Message not found.' },
+  date: { fr: 'Dates attendues au format AAAA-MM-JJ (au plus 400 jours).', en: 'Dates expected as YYYY-MM-DD (400 days at most).' },
   interne: { fr: 'Erreur interne.', en: 'Internal error.' },
 };
 const erreur = (cle, plus = {}) => ({ erreur: tr(ERREURS[cle]), ...plus });
+
+const JOUR = /^\d{4}-\d{2}-\d{2}$/;
 
 // Static files: a fixed list, never a path taken from the URL.
 const STATIQUES = {
   '/': ['index.html', 'text/html; charset=utf-8'],
   '/app.js': ['app.js', 'text/javascript; charset=utf-8'],
   '/i18n.js': ['i18n.js', 'text/javascript; charset=utf-8'],
+  '/periodes.js': ['periodes.js', 'text/javascript; charset=utf-8'],
   '/style.css': ['style.css', 'text/css; charset=utf-8'],
 };
 // Media files (demo videos): same rule, a fixed list. Served with Range support so the player can seek.
@@ -125,6 +130,8 @@ function ouvrirDansNavigateur(url) {
  *   /api/bureau/* (same Host / Origin / X-Relais checks as every POST). Absent (command line) = no such
  *   routes (404), and the page hides its "Paramètres" tab.
  *   { etat(), demarrage(actif: boolean), verifierMaj(), telechargerMaj(), installerMaj() } -> JSON-able (or Promise).
+ *   Optional, anonymous statistics: { statsApercu(), statsReponse(accepte: boolean), statsOnglet(cle) -> boolean,
+ *   statsSupprimer() } (the routes /api/bureau/stats/* exist only when statsReponse is given).
  * @returns {Promise<{ url: string, port: number, fermer: () => Promise<void>, depot: { ok: boolean, depot?: string, raison?: string } | null }>}
  */
 export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = false, journal = console.log, depot, bureau } = {}) {
@@ -188,6 +195,24 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
           if (!b || typeof b.actif !== 'boolean') return envoyer(res, 400, erreur('actif'));
           return envoyer(res, 200, await bureau.demarrage(b.actif));
         }
+        // Anonymous statistics (opt-in, see statistiques.mjs): the app decides what is counted and sent.
+        if (p.startsWith('/api/bureau/stats/') && bureau.statsReponse) {
+          if (req.method === 'GET' && p === '/api/bureau/stats/apercu') return envoyer(res, 200, await bureau.statsApercu());
+          if (req.method === 'POST' && ['/api/bureau/stats/reponse', '/api/bureau/stats/onglet', '/api/bureau/stats/supprimer'].includes(p)) {
+            const b = await lireCorps(req);
+            if (!b || typeof b !== 'object') return envoyer(res, 400, erreur('json'));
+            if (p.endsWith('/reponse')) {
+              if (typeof b.accepte !== 'boolean') return envoyer(res, 400, erreur('accepte'));
+              return envoyer(res, 200, await bureau.statsReponse(b.accepte));
+            }
+            if (p.endsWith('/onglet')) {
+              const compte = typeof b.cle === 'string' && await bureau.statsOnglet(b.cle);
+              return envoyer(res, compte ? 200 : 400, { ok: !!compte });
+            }
+            return envoyer(res, 200, await bureau.statsSupprimer());
+          }
+          return envoyer(res, 404, erreur('introuvable'));
+        }
         const actions = { '/api/bureau/maj/verifier': 'verifierMaj', '/api/bureau/maj/telecharger': 'telechargerMaj', '/api/bureau/maj/installer': 'installerMaj' };
         if (req.method === 'POST' && actions[p]) {
           if (!(await lireCorps(req))) return envoyer(res, 400, erreur('json'));
@@ -218,6 +243,23 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
         return envoyer(res, 200, await detailTour(f, n));
       }
       if (req.method === 'GET' && p === '/api/vue') return envoyer(res, 200, index.vue());
+      // One day (?date=YYYY-MM-DD) or a period (?date=...&fin=...): what was used, by hour / day, conversation, project, model.
+      if (req.method === 'GET' && p === '/api/jour') {
+        const de = String(url.searchParams.get('date') || '');
+        const a = String(url.searchParams.get('fin') || de);
+        if (!JOUR.test(de) || !JOUR.test(a) || a < de || jourMoins(de, -400) < a) return envoyer(res, 400, erreur('date'));
+        return envoyer(res, 200, index.periode(de, a));
+      }
+      // Live usage: refreshes only the logs that changed since the last call, then answers from memory.
+      if (req.method === 'GET' && p === '/api/direct') {
+        await index.actualiserRapide();
+        return envoyer(res, 200, index.direct());
+      }
+      // "Why so many tokens?": ranked findings over the last 7 or 30 days (any 1..365), local and deterministic.
+      if (req.method === 'GET' && p === '/api/analyse') {
+        const n = Math.round(Number(url.searchParams.get('jours') || 30));
+        return envoyer(res, 200, index.analyser(Number.isFinite(n) ? Math.min(365, Math.max(1, n)) : 30));
+      }
       if (req.method === 'GET' && p === '/api/skills') return envoyer(res, 200, catalogue());
       // Node.js of the user's PATH (the plugins' hooks need it); ?forcer=1 skips the few-minutes cache.
       if (req.method === 'GET' && p === '/api/node') return envoyer(res, 200, await gestion.verifierNode({ forcer: url.searchParams.get('forcer') === '1' }));
@@ -249,6 +291,13 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
         const r = await gestion.plugins(url.searchParams.get('projet') || '');
         return envoyer(res, r.ok ? 200 : 400, r);
       }
+      // Skills installed by hand (plain folders), read-only.
+      if (req.method === 'GET' && p === '/api/gestion/skills-manuels') {
+        const r = gestion.skillsManuels(url.searchParams.get('projet') || '');
+        return envoyer(res, r.ok ? 200 : 400, r);
+      }
+      // How long Claude Code keeps conversation logs (cleanupPeriodDays) and what they weigh on disk.
+      if (req.method === 'GET' && p === '/api/historique') return envoyer(res, 200, gestion.historiqueConversations());
       if (req.method === 'GET' && p === '/api/gestion/projets') {
         const vus = new Set();
         const liste = index.vue().projets.map((x) => ({ nom: x.nom, dossier: x.cwd, conversations: x.conversations }))
@@ -263,6 +312,7 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
         '/api/gestion/profil': gestion.enregistrerProfil,
         '/api/gestion/profil/supprimer': (b) => gestion.supprimerProfil(b.id),
         '/api/gestion/lancer': gestion.lancerProfil,
+        '/api/historique': gestion.definirHistorique,
         '/api/externes/installer': (b) => gestion.installerExterne(b.id),
         '/api/externes/design': gestion.ajouterDesign,
         '/api/externes/skills': gestion.ajouterSkills,

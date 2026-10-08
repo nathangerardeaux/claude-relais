@@ -198,10 +198,18 @@ account name and plan. French or English, following the system language.
 |---|---|---|---|
 | relais, avocat (scripts) | **none** (only local `git` calls) | the end of your Claude Code log | `~/.claude/relais/`, `~/.claude/avocat/` (under `$CLAUDE_CONFIG_DIR` when set) |
 | avocat (the checking agent) | it may use web search, like any Claude agent | your files, read-only | nothing |
-| Dashboard / app | listens on **127.0.0.1 only**; outgoing only for app updates (GitHub) and buttons you click (installs, one design file) | your logs, read-only; **never a login token** | a local index (`tableau/.cache/`, with short message excerpts), the registry, settings |
+| Dashboard / app | listens on **127.0.0.1 only**; outgoing only for app updates (GitHub), buttons you click (installs, one design file) and, only if you opted in, the anonymous statistics below | your logs, read-only; **never a login token** | a local index (`tableau/.cache/`, with short message excerpts), the registry, settings |
 | "Rules" chat | sends the registry to Claude through `claude -p`, no tools | the registry | only the cards you apply |
 | images | downloads at setup (GitHub, Hugging Face, pip); Stable Diffusion runs on 127.0.0.1; **the Codex engine sends your prompt to OpenAI** | | images in your project |
 
+- **Anonymous usage statistics (desktop app only, off until you say yes).** The first time the app opens,
+  it asks once. If you accept, it sends a small daily summary to `api.nybo.fr`: time with the window in
+  the foreground, how many times each tab was opened, whether the relais / avocat / images plugins are
+  installed (version, relays written over 7 days, devil's advocate on or off), the app, Windows, Claude
+  Code and Node.js versions, and the language, under a random identifier. Never an e-mail, a name, a
+  path, a project name or any conversation content. You can switch it off, preview the exact JSON, or
+  delete your data from the server in **Settings**. The plugins themselves never send anything. Exact
+  format: [docs/statistiques.md](docs/statistiques.md).
 - A relay contains information about your project (paths, decisions). It stays on your disk. Claude is
   told to put **no secrets** in it, and resume flags anything that looks like one; re-read it if your
   project is sensitive.

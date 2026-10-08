@@ -1,6 +1,7 @@
 // Relais dashboard (front). No framework, no external resource. Every piece of text coming from the
 // logs is inserted as text (textContent), never as HTML.
 import { t, definirLangue, locale, MARQUES, DEBUT } from './i18n.js';
+import { seaux, cleJour, dateDe } from './periodes.js';
 
 // ------------------------------------------------------------------ language (before anything is drawn)
 // The server tells the system language (French or English); reachable before sign-in.
@@ -27,6 +28,8 @@ function h(tag, attrs = {}, ...enfants) {
   for (const e of enfants.flat()) if (e != null && e !== false) el.append(e instanceof Node ? e : String(e));
   return el;
 }
+// replaceChildren that accepts arrays and skips null / false (a bare null would be written as the text "null")
+function remplacer(el, ...enfants) { el.replaceChildren(...enfants.flat().filter((e) => e != null && e !== false)); }
 const SVG = 'http://www.w3.org/2000/svg';
 function s(tag, attrs = {}, ...enfants) {
   const el = document.createElementNS(SVG, tag);
@@ -102,30 +105,44 @@ function echelle(max) {
   return { pas, haut: Math.ceil(max / pas) * pas || pas };
 }
 
-function grapheBarres(donnees, { hauteur = 220, libelle = (d) => d.x, info }) {
+// `selection`: key (d.x) of the highlighted bar. `onClique(d)`: makes every bar a button (click, Enter, Space).
+// `aria(d)`: spoken label of a bar. `etiquettes`: number of axis labels wanted (about).
+function grapheBarres(donnees, { hauteur = 220, libelle = (d) => d.x, info, selection, onClique, aria, etiquettes = 10 }) {
   const m = { g: 52, d: 8, h: 10, b: 26 };
   const W = LARGEUR - m.g - m.d; const H = hauteur - m.h - m.b;
   const { pas, haut } = echelle(Math.max(...donnees.map((d) => d.y), 1));
-  const svg = s('svg', { viewBox: `0 0 ${LARGEUR} ${hauteur}`, role: 'img', 'aria-label': t('graphe.barres') });
+  const svg = s('svg', { viewBox: `0 0 ${LARGEUR} ${hauteur}`, role: onClique ? 'group' : 'img', 'aria-label': t('graphe.barres') });
   for (let v = 0; v <= haut; v += pas) {
     const y = m.h + H - (v / haut) * H;
     svg.append(s('line', { class: 'ligne-grille', x1: m.g, x2: LARGEUR - m.d, y1: y, y2: y }), s('text', { class: 'axe', x: m.g - 8, y: y + 4, 'text-anchor': 'end' }, fmt(v)));
   }
   const bw = W / donnees.length;
   const largeurBarre = Math.max(2, Math.min(28, bw - 2));
+  const tous = Math.ceil(donnees.length / etiquettes);
   donnees.forEach((d, i) => {
     const x = m.g + i * bw + (bw - largeurBarre) / 2;
     const bh = (d.y / haut) * H;
     const y = m.h + H - bh;
+    const choisie = selection !== undefined && selection === d.x;
+    if (choisie) svg.append(s('rect', { class: 'bande-sel', x: m.g + i * bw, y: m.h, width: bw, height: H }));
+    let barre = null;
     if (bh > 0) {
       const r = Math.min(4, largeurBarre / 2, bh);
-      svg.append(s('path', { class: 'barre-val', d: `M${x},${m.h + H}V${y + r}a${r},${r} 0 0 1 ${r},-${r}H${x + largeurBarre - r}a${r},${r} 0 0 1 ${r},${r}V${m.h + H}Z` }));
+      barre = s('path', { class: `barre-val${choisie ? ' sel' : ''}`, d: `M${x},${m.h + H}V${y + r}a${r},${r} 0 0 1 ${r},-${r}H${x + largeurBarre - r}a${r},${r} 0 0 1 ${r},${r}V${m.h + H}Z` });
+      svg.append(barre);
     }
-    const zone = s('rect', { x: m.g + i * bw, y: m.h, width: bw, height: H, fill: 'transparent' });
-    zone.addEventListener('mousemove', (ev) => { montrerBulle(ev, ...info(d)); zone.previousSibling?.classList?.add?.('survol'); });
-    zone.addEventListener('mouseleave', () => { cacherBulle(); zone.previousSibling?.classList?.remove?.('survol'); });
+    const zone = s('rect', { class: onClique ? 'zone-clic' : null, x: m.g + i * bw, y: m.h, width: bw, height: H, fill: 'transparent' });
+    zone.addEventListener('mousemove', (ev) => { montrerBulle(ev, ...info(d)); barre?.classList.add('survol'); });
+    zone.addEventListener('mouseleave', () => { cacherBulle(); barre?.classList.remove('survol'); });
+    if (onClique) {
+      zone.setAttribute('tabindex', '0'); zone.setAttribute('role', 'button'); zone.setAttribute('data-x', String(d.x));
+      zone.setAttribute('aria-pressed', String(choisie));
+      zone.setAttribute('aria-label', aria ? aria(d) : String(d.x));
+      zone.addEventListener('click', () => onClique(d));
+      zone.addEventListener('keydown', (ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onClique(d); } });
+      zone.addEventListener('focus', () => cacherBulle());
+    }
     svg.append(zone);
-    const tous = Math.ceil(donnees.length / 10);
     if (i % tous === 0) svg.append(s('text', { class: 'axe', x: m.g + i * bw + bw / 2, y: hauteur - 6, 'text-anchor': 'middle' }, libelle(d)));
   });
   return h('div', { class: 'graphe' }, svg);
@@ -180,6 +197,7 @@ const etat = {
 };
 function allerA(page) {
   etat.page = page; localStorage.setItem('relais-page', page);
+  compterOnglet(page);
   document.querySelectorAll('nav button').forEach((b) => b.classList.toggle('actif', b.dataset.page === page));
   document.querySelectorAll('.page').forEach((p) => p.classList.toggle('actif', p.id === `page-${page}`));
   if (page === 'vue') afficherVue();
@@ -249,35 +267,44 @@ function blocConseils(liste) {
 }
 
 // ------------------------------------------------------------------ overview
+Object.assign(etat, {
+  graphe: { mode: ['30j', '12m', 'tout'].includes(localStorage.getItem('relais-graphe')) ? localStorage.getItem('relais-graphe') : '30j', choix: null },
+  joursVue: {},       // day key -> tokens, kept fresh by the live view
+  derniereVue: 0, vueEnRetard: false,
+  direct: null, directOk: true, directSig: '',
+  panneau: null,      // last detail panel built { x, mode, noeud, le }
+});
+const sommeJours = (n) => {
+  const auj = new Date(); let tot = 0;
+  for (let i = 0; i < n; i++) { const d = new Date(auj); d.setDate(d.getDate() - i); tot += etat.joursVue[cleJour(d)] || 0; }
+  return tot;
+};
+const nomModele = (m) => String(m).replace(/^claude-/, '');
+
 async function afficherVue() {
   const page = $('#page-vue');
   const v = await api('/api/vue').catch(() => null);
   if (!v) return;
+  etat.joursVue = v.jours; etat.derniereVue = Date.now(); etat.vueEnRetard = false;
   const convs = etat.conversations;
-  const aujourdHui = new Date();
-  const cle = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const jours = [];
-  for (let i = 29; i >= 0; i--) { const d = new Date(aujourdHui); d.setDate(d.getDate() - i); jours.push({ x: cle(d), d, y: v.jours[cle(d)] || 0 }); }
-  const sur = (n) => jours.slice(-n).reduce((a, j) => a + j.y, 0);
   const lourdes = convs.filter((c) => c.ctxMax >= 150000);
   const totalTout = convs.reduce((a, c) => a + total(c.tot) + total(c.agents.tot), 0);
   const tReparti = convs.reduce((a, c) => { for (const k of ['in', 'out', 'read', 'create']) a[k] += (c.tot[k] || 0) + (c.agents.tot[k] || 0); return a; }, { in: 0, out: 0, read: 0, create: 0 });
+  const tAuj = tuile(t('vue.aujourdhui'), fmt(sommeJours(1)), t('vue.tokensTraites'), true);
+  const t7 = tuile(t('vue.7jours'), fmt(sommeJours(7)), t('vue.tokensTraites'));
+  const t30 = tuile(t('vue.30jours'), fmt(sommeJours(30)), t('vue.tokensTraites'));
+  etat.tuilesVue = { auj: tAuj.querySelector('.valeur'), sept: t7.querySelector('.valeur'), trente: t30.querySelector('.valeur') };
 
   page.replaceChildren(
     h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('nav.vue')),
-      h('p', {}, t('vue.intro')))),
-    h('div', { class: 'tuiles' },
-      tuile(t('vue.aujourdhui'), fmt(sur(1)), t('vue.tokensTraites'), true),
-      tuile(t('vue.7jours'), fmt(sur(7)), t('vue.tokensTraites')),
-      tuile(t('vue.30jours'), fmt(sur(30)), t('vue.tokensTraites')),
+      h('p', {}, t('vue.intro'))),
+    h('button', { class: 'bouton principal', id: 'bouton-analyse', onclick: ouvrirAnalyse }, t('analyse.bouton'))),
+    h('div', { class: 'tuiles' }, tAuj, t7, t30,
       tuile(t('nav.conversations'), nf.format(convs.length), t('vue.auTotal', { n: fmt(totalTout) })),
       tuile(t('vue.lourdes'), nf.format(lourdes.length), t('vue.lourdesNote'))),
-    h('div', { class: 'carte bloc' }, h('h2', {}, t('vue.parJour')),
-      h('p', { class: 'aide' }, t('vue.parJourAide')),
-      grapheBarres(jours, {
-        libelle: (d) => d.d.toLocaleDateString(LOC, { day: '2-digit', month: '2-digit' }),
-        info: (d) => [h('b', {}, fmt(d.y)), ` ${t('commun.tokens')}`, h('br'), h('span', { class: 'muet' }, d.d.toLocaleDateString(LOC, { weekday: 'long', day: 'numeric', month: 'long' }))],
-      })),
+    h('div', { class: 'carte bloc', id: 'carte-direct' }),
+    h('div', { class: 'carte bloc', id: 'carte-jours' }),
+    h('div', { id: 'zone-jour' }),
     h('div', { class: 'carte bloc' }, h('h2', {}, t('vue.provenance')),
       h('p', { class: 'aide' }, t('vue.provenanceAide')),
       repartition(tReparti)),
@@ -293,9 +320,300 @@ async function afficherVue() {
             h('td', { class: 'num' }, fmt(total(c.tot) + total(c.agents.tot))), h('td', { class: 'num' }, fmt(c.ctxMax)))))))),
     blocConseils(conseilsGlobaux(convs, tReparti)),
   );
+  etat.directSig = '';
+  dessinerDirect(); dessinerJours(); afficherJour(false);
+  tickDirect();
 }
 function tuile(libelle, valeur, note, forte = false) {
   return h('div', { class: `tuile${forte ? ' forte' : ''}` }, h('div', { class: 'libelle' }, libelle), h('div', { class: 'valeur' }, valeur), note && h('div', { class: 'note' }, note));
+}
+
+// ---- the "tokens per day / week / month" chart and the detail panel under it
+const MODES = ['30j', '12m', 'tout'];
+function libelleSeau(d, mode) {
+  const debut = dateDe(d.debut);
+  if (mode === '30j') return debut.toLocaleDateString(LOC, { weekday: 'long', day: 'numeric', month: 'long' });
+  if (mode === 'tout') return debut.toLocaleDateString(LOC, { month: 'long', year: 'numeric' });
+  return t('periode.semaine', { du: debut.toLocaleDateString(LOC, { day: 'numeric', month: 'short' }), au: dateDe(d.fin).toLocaleDateString(LOC, { day: 'numeric', month: 'short', year: 'numeric' }) });
+}
+function etiquetteSeau(d, mode) {
+  const debut = dateDe(d.debut);
+  return mode === 'tout' ? debut.toLocaleDateString(LOC, { month: 'short', year: '2-digit' }) : debut.toLocaleDateString(LOC, { day: '2-digit', month: '2-digit' });
+}
+function dessinerJours(focus) {
+  const zone = $('#carte-jours');
+  if (!zone) return;
+  const mode = etat.graphe.mode;
+  const donnees = seaux(etat.joursVue, mode, cleJour(new Date()));
+  etat.grapheLe = Date.now(); etat.graphePerime = false;
+  const premier = Object.keys(etat.joursVue).filter((j) => etat.joursVue[j] > 0).sort()[0];
+  const manque = mode !== '30j' && premier && premier > donnees[0].debut;
+  const cle = { '30j': 'Jour', '12m': 'Semaine', tout: 'Mois' }[mode];
+  remplacer(zone,
+    h('div', { class: 'entete-carte' },
+      h('div', {}, h('h2', {}, t(`vue.par${cle}`)), h('p', { class: 'aide' }, t(mode === '30j' ? 'vue.parJourAide30' : `vue.par${cle}Aide`))),
+      h('div', { class: 'segments', role: 'group', 'aria-label': t('periode.label') }, MODES.map((m) => h('button', {
+        type: 'button', class: `segment${m === mode ? ' actif' : ''}`, 'aria-pressed': String(m === mode), onclick: () => changerMode(m) }, t(`periode.${m}`))))),
+    grapheBarres(donnees, {
+      libelle: (d) => etiquetteSeau(d, mode), selection: etat.graphe.choix?.mode === mode ? etat.graphe.choix.x : undefined, onClique: choisirSeau,
+      etiquettes: mode === '12m' ? 9 : mode === 'tout' ? 12 : 10,
+      aria: (d) => t('periode.barreAria', { libelle: libelleSeau(d, mode), tokens: fmt(d.y) }),
+      info: (d) => [h('b', {}, fmt(d.y)), ` ${t('commun.tokens')}`, h('br'), h('span', { class: 'muet' }, libelleSeau(d, mode))],
+    }),
+    manque ? h('p', { class: 'muet petit' }, t('periode.manque', { date: dateDe(premier).toLocaleDateString(LOC, { day: 'numeric', month: 'long', year: 'numeric' }) })) : null);
+  if (focus) zone.querySelector(`[data-x="${focus}"]`)?.focus();
+}
+function changerMode(mode) {
+  etat.graphe.mode = mode; etat.graphe.choix = null;
+  localStorage.setItem('relais-graphe', mode);
+  dessinerJours(); afficherJour(false);
+  $('#carte-jours .segment.actif')?.focus();
+}
+function choisirSeau(d) {
+  etat.graphe.choix = { x: d.x, debut: d.debut, fin: d.fin, mode: etat.graphe.mode };
+  dessinerJours(d.x); afficherJour(true);
+}
+function fermerJour() {
+  const x = etat.graphe.choix?.x;
+  etat.graphe.choix = null; etat.panneau = null;
+  dessinerJours(x); afficherJour(false);
+}
+async function afficherJour(aller) {
+  const zone = $('#zone-jour');
+  if (!zone) return;
+  const c = etat.graphe.choix;
+  if (!c) { zone.replaceChildren(); return; }
+  const memo = etat.panneau && etat.panneau.x === c.x && etat.panneau.mode === c.mode ? etat.panneau : null;
+  zone.replaceChildren(memo ? memo.noeud : h('div', { class: 'carte bloc' }, h('p', { class: 'muet' }, t('commun.chargement'))));
+  if (aller) zone.firstChild.scrollIntoView({ block: 'nearest' });
+  const d = await api(`/api/jour?date=${c.debut}&fin=${c.fin}`).catch(() => null);
+  const ici = $('#zone-jour');
+  if (!ici || etat.graphe.choix?.x !== c.x || etat.graphe.choix.mode !== c.mode) return;
+  const noeud = d ? panneauJour(d, c) : h('div', { class: 'carte bloc' }, h('p', { class: 'muet' }, t('jour.erreur')), h('button', { class: 'bouton', onclick: fermerJour }, t('commun.fermer')));
+  etat.panneau = { x: c.x, mode: c.mode, noeud, le: Date.now() };
+  ici.replaceChildren(noeud);
+  if (aller) noeud.scrollIntoView({ block: 'nearest' });
+}
+function titrePeriode(c) {
+  const debut = dateDe(c.debut);
+  if (c.mode === '30j') return debut.toLocaleDateString(LOC, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' });
+  if (c.mode === 'tout') return debut.toLocaleDateString(LOC, { month: 'long', year: 'numeric' });
+  return t('jour.titreSemaine', { du: debut.toLocaleDateString(LOC, { day: 'numeric', month: 'long' }), au: dateDe(c.fin).toLocaleDateString(LOC, { day: 'numeric', month: 'long', year: 'numeric' }) });
+}
+function panneauJour(d, c) {
+  const titre = titrePeriode(c);
+  const parHeure = d.granularite === 'heure';
+  const barres = d.barres.map((b) => ({ x: b.cle, y: b.tokens }));
+  const libelleBarre = (b) => (parHeure ? t('jour.heure', { h: b.x }) : dateDe(b.x).toLocaleDateString(LOC, { weekday: 'short', day: 'numeric', month: 'short' }));
+  const tbody = h('tbody');
+  const MAX_LIGNES = 15;
+  let toutes = false;
+  const lignes = () => {
+    const liste = toutes ? d.conversations : d.conversations.slice(0, MAX_LIGNES);
+    tbody.replaceChildren(...liste.map((x) => {
+      const ouvrable = x.ouvrable;
+      return h('tr', { class: ouvrable ? 'cliquable' : null, tabindex: ouvrable ? '0' : null, title: ouvrable ? t('jour.ouvrirConv') : null,
+        onclick: ouvrable ? () => ouvrir(x.id) : null, onkeydown: ouvrable ? (ev) => { if (ev.key === 'Enter') ouvrir(x.id); } : null },
+        h('td', {}, h('div', {}, libre(x.titre).slice(0, 80)), h('div', { class: 'muet petit' }, x.projet)),
+        h('td', {}, h('div', { class: 'puces' }, x.modeles.slice(0, 3).map((m) => h('span', { class: 'puce', title: `${fmt(m.tokens)} ${t('commun.tokens')}` }, nomModele(m.nom))))),
+        h('td', { class: 'num' }, fmt(x.total)),
+        h('td', { class: 'num' }, x.agents ? `${pc(Math.round(x.partAgents * 100))}` : '·'),
+        h('td', { class: `num${x.ctxMax >= 150000 ? ' ctx-lourd' : ''}` }, fmt(x.ctxMax)));
+    }));
+  };
+  lignes();
+  const plus = d.conversations.length > MAX_LIGNES ? h('button', { class: 'lien plus', onclick: (ev) => {
+    toutes = !toutes; lignes(); ev.currentTarget.textContent = toutes ? t('jour.reduire') : t('jour.voirTout', { n: d.conversations.length });
+  } }, t('jour.voirTout', { n: d.conversations.length })) : null;
+  const partAgents = d.total ? Math.round((d.agents / d.total) * 100) : 0;
+  return h('div', { class: 'carte bloc panneau-jour', role: 'region', 'aria-label': titre },
+    h('div', { class: 'entete-carte' },
+      h('div', {}, h('h2', {}, titre), h('p', { class: 'aide' }, t('jour.resume', { tokens: fmt(d.total), nb: nf.format(d.nConversations), n: d.nConversations, appels: nf.format(d.tot.appels) }))),
+      h('button', { class: 'bouton fermer-carte', onclick: fermerJour, 'aria-label': t('jour.fermer'), title: t('jour.fermer') }, '×')),
+    d.total ? [repartition(d.tot), d.agents ? h('p', { class: 'muet petit' }, t('jour.agentsPart', { tokens: fmt(d.agents), pct: pc(partAgents) })) : null] : h('p', { class: 'muet' }, t('jour.aucun')),
+    d.total && barres.some((b) => b.y > 0) ? [h('h3', { class: 'sous-titre' }, parHeure ? t('jour.parHeure') : t('jour.parJour')),
+      grapheBarres(barres, { hauteur: 150, etiquettes: parHeure ? 12 : 10, libelle: (b) => (parHeure ? t('jour.heure', { h: b.x }) : dateDe(b.x).toLocaleDateString(LOC, { day: '2-digit', month: '2-digit' })),
+        info: (b) => [h('b', {}, fmt(b.y)), ` ${t('commun.tokens')}`, h('br'), h('span', { class: 'muet' }, libelleBarre(b))] })] : null,
+    d.conversations.length ? [h('h3', { class: 'sous-titre' }, t('jour.conversations')),
+      h('div', { class: 'defile' }, h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, t('vue.colConversation')), h('th', {}, t('jour.colModeles')),
+        h('th', { class: 'num' }, t('jour.colTokens')), h('th', { class: 'num' }, t('jour.colAgents')), h('th', { class: 'num' }, t('jour.colCtx')))), tbody)), plus] : null,
+    d.total ? h('div', { class: 'grille-2' },
+      h('div', {}, h('h3', { class: 'sous-titre' }, t('jour.projets')),
+        h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, t('commun.projet')), h('th', { class: 'num' }, t('vue.colConv')), h('th', { class: 'num' }, t('jour.colTokens')))),
+          h('tbody', {}, d.projets.slice(0, 12).map((p) => h('tr', {}, h('td', {}, p.nom), h('td', { class: 'num' }, p.conversations || '·'), h('td', { class: 'num' }, fmt(p.total))))))),
+      h('div', {}, h('h3', { class: 'sous-titre' }, t('jour.modeles')),
+        h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, t('detail.colModele')), h('th', { class: 'num' }, t('jour.colTokens')), h('th', { class: 'num' }, '%'))),
+          h('tbody', {}, d.modeles.slice(0, 8).map((m) => h('tr', {}, h('td', {}, nomModele(m.nom)), h('td', { class: 'num' }, fmt(m.tokens)), h('td', { class: 'num' }, pc(pct(m.tokens, d.total))))))))) : null,
+    d.detailPartiel ? h('p', { class: 'muet petit' }, t('jour.archive')) : null);
+}
+
+// ---- live view: today's figures refreshed by themselves while the page is visible
+function dessinerDirect() {
+  const zone = $('#carte-direct');
+  if (!zone) return;
+  const d = etat.direct; const ok = etat.directOk;
+  const pastille = h('span', { class: `direct-pastille${ok ? '' : ' hors'}`, role: 'status',
+    title: d ? t('direct.misAJour', { heure: new Date(d.maintenant).toLocaleTimeString(LOC) }) : null },
+  h('span', { class: 'direct-point', 'aria-hidden': 'true' }), ok ? t('direct.enDirect') : t('direct.horsLigne'));
+  let corps;
+  if (!d) corps = h('p', { class: 'muet' }, t('commun.chargement'));
+  else {
+    const alerte = d.actives.some((x) => x.alerte);
+    corps = [
+      h('div', { class: 'tuiles' },
+        tuile(t('direct.cinqMin'), fmt(d.tokens5), t('direct.notePeriode')),
+        tuile(t('direct.soixanteMin'), fmt(d.tokens60), t('direct.notePeriode')),
+        tuile(t('direct.debit'), fmt(d.debit), t('direct.debitNote'))),
+      h('h3', { class: 'sous-titre' }, t('direct.graphe')),
+      grapheBarres(d.minutes.map((y, i) => ({ x: i, y })), {
+        hauteur: 130, etiquettes: 10,
+        libelle: (b) => (b.x === 59 ? t('direct.maintenant') : t('direct.minutesAvant', { n: 59 - b.x })),
+        info: (b) => [h('b', {}, fmt(b.y)), ` ${t('commun.tokens')}`, h('br'), h('span', { class: 'muet' }, b.x === 59 ? t('direct.maintenant') : t('direct.minutesAvant', { n: 59 - b.x }))],
+      }),
+      d.indexation ? h('p', { class: 'muet petit' }, t('direct.indexation')) : null,
+      h('h3', { class: 'sous-titre' }, t('direct.actives')),
+      d.actives.length ? h('table', {}, h('thead', {}, h('tr', {}, h('th', {}, t('direct.colConversation')), h('th', { class: 'num' }, t('direct.colContexte')), h('th', { class: 'num' }, t('direct.colTokens5')))),
+        h('tbody', {}, d.actives.map((x) => h('tr', { class: 'cliquable', tabindex: '0', onclick: () => ouvrir(x.id), onkeydown: (ev) => { if (ev.key === 'Enter') ouvrir(x.id); } },
+          h('td', {}, h('div', {}, libre(x.titre).slice(0, 80)), h('div', { class: 'muet petit' }, x.projet)),
+          h('td', { class: 'num' }, x.alerte ? h('span', { class: 'badge grave' }, `${fmt(x.ctx)} · ${t('direct.alerteCourt')}`) : fmt(x.ctx)),
+          h('td', { class: 'num' }, fmt(x.tokens5)))))) : h('p', { class: 'muet' }, t('direct.aucune')),
+      alerte ? h('div', { class: 'avertissement' }, t('direct.alerte')) : null,
+    ];
+  }
+  remplacer(zone, h('div', { class: 'entete-carte' }, h('div', {}, h('h2', {}, t('direct.titre')), h('p', { class: 'aide' }, t('direct.aide'))), pastille), corps);
+}
+let tickEnCours = false;
+async function tickDirect() {
+  if (!demarre || etat.page !== 'vue' || document.hidden || tickEnCours || !$('#carte-direct')) return;
+  tickEnCours = true;
+  try {
+    const d = await api('/api/direct');
+    const changeEtat = !etat.directOk;
+    etat.directOk = true; etat.direct = d;
+    const avant = JSON.stringify(etat.joursVue);
+    Object.assign(etat.joursVue, d.jours);
+    const tu = etat.tuilesVue;
+    if (tu) { tu.auj.textContent = fmt(sommeJours(1)); tu.sept.textContent = fmt(sommeJours(7)); tu.trente.textContent = fmt(sommeJours(30)); }
+    const sig = JSON.stringify({ ...d, maintenant: 0 });
+    if ((sig !== etat.directSig || changeEtat) && !$('#carte-direct')?.matches(':hover')) { etat.directSig = sig; dessinerDirect(); } // not under the pointer: a click must land
+    if (JSON.stringify(etat.joursVue) !== avant) etat.graphePerime = true;
+    // The chart is redrawn at most every 15 s, and never under the pointer or the keyboard focus (a click must land).
+    const carte = $('#carte-jours');
+    if (etat.graphePerime && Date.now() - (etat.grapheLe || 0) > 15000 && carte && !carte.matches(':hover') && !carte.contains(document.activeElement)) {
+      etat.graphePerime = false; etat.grapheLe = Date.now();
+      dessinerJours();
+      const c = etat.graphe.choix;
+      if (c && c.fin >= cleJour(new Date()) && Date.now() - (etat.panneau?.le || 0) > 15000 && !$('#zone-jour')?.matches(':hover')) afficherJour(false);
+    }
+    if (etat.vueEnRetard && Date.now() - etat.derniereVue > 30000) afficherVue();
+  } catch {
+    if (etat.directOk) { etat.directOk = false; dessinerDirect(); }
+  } finally { tickEnCours = false; }
+}
+setInterval(tickDirect, 5000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) tickDirect(); }); // paused while hidden, caught up at once
+
+// ---- "Analyser ma conso": ranked findings in a dialog
+let analyseOuverte = false;
+function texteConstat(c) {
+  const d = c.donnees; const part = pc(Math.round(c.part * 100));
+  const conv = (x) => ({ id: x.id, titre: libre(x.titre).slice(0, 60) });
+  const lien = (x, texte) => ({ texte, id: x.id });
+  switch (c.id) {
+    case 'relus': return { titre: t('analyse.relus.titre', { pct: part }),
+      chiffres: [t('analyse.relus.c1', { read: fmt(d.read), appels: nf.format(d.appels) }), t('analyse.relus.c2', { parAppel: fmt(d.parAppel) })] };
+    case 'lourdes': return { titre: t('analyse.lourdes.titre', { nb: nf.format(d.n), n: d.n, seuil: fmt(d.seuil) }), note: t('analyse.estimation'),
+      chiffres: [t('analyse.lourdes.c1', { tokens: fmt(d.tokens) }),
+        t('analyse.lourdes.c2', { seuil: fmt(d.seuil), reel: fmt(d.reel), simule: fmt(d.simule), economie: fmt(d.economie), pct: d.pctEco, relais: nf.format(d.relais), r: d.relais }),
+        t('analyse.lourdes.c3', { socle: fmt(d.socle) }),
+        ...d.top.map((x) => lien(x, t('analyse.lourdes.ligne', { titre: conv(x).titre, projet: x.projet, ctx: fmt(x.ctxMax), economie: fmt(Math.max(0, x.reel - x.simule)) })))],
+      vars: { seuil: fmt(d.seuil), socle: fmt(d.socle) } };
+    case 'socle': return { titre: t('analyse.socle.titre', { mediane: fmt(d.mediane) }),
+      chiffres: [t('analyse.socle.c1', { mediane: fmt(d.mediane), p90: fmt(d.p90), nb: nf.format(d.n), n: d.n }), t('analyse.socle.c2', { pct: part }),
+        ...Object.entries(d.parts).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]).map(([k, v]) => t(`analyse.socle.${k}`, { v: fmt(v), nSkills: d.nSkills })),
+        ...d.fichiers.map((f) => t('analyse.socle.fichier', { p: f.p, v: fmt(f.tokens) }))],
+      actionCle: `analyse.socle.action.${d.dominant}` };
+    case 'appels': return { titre: t('analyse.appels.titre', { appels: nf.format(d.appels), moy: nf.format(d.parConversation) }),
+      chiffres: [t('analyse.appels.c1', { appels: nf.format(d.appels), nb: nf.format(d.n), n: d.n }),
+        ...(d.nFrequentes ? [t('analyse.appels.c2', { nf: d.nFrequentes, n: d.nFrequentes })] : []),
+        ...d.top.map((x) => lien(x, t('analyse.appels.ligne', { titre: conv(x).titre, projet: x.projet, appels: nf.format(x.appels), tokens: fmt(x.tokens) })))] };
+    case 'gros': return { titre: t('analyse.gros.titre'),
+      chiffres: [t('analyse.gros.c1', { nTres: d.nTresGros, nt: d.nTresGros, n: d.n }),
+        ...d.top.map((x) => lien(x, t('analyse.gros.ligne', { nom: x.nom, quoi: x.quoi ? `(${x.quoi})` : '', tokens: fmt(x.tokens), titre: conv(x).titre })))] };
+    case 'agents': return { titre: t('analyse.agents.titre', { pct: part }),
+      chiffres: [t('analyse.agents.c1', { tokens: fmt(d.tokens), appels: nf.format(d.appels), n: d.n, s: d.n }), ...d.types.map((x) => t('analyse.agents.ligne', { type: x.type, tokens: fmt(x.tokens) }))] };
+    case 'modeles': {
+      const tout = d.familles.reduce((x, f) => x + f.tokens, 0) || 1;
+      return { titre: d.opus / tout >= 0.5 ? t('analyse.modeles.titre', { pct: pc(Math.round((100 * d.opus) / tout)) }) : t('analyse.modeles.titreMix'),
+        chiffres: d.familles.map((f) => t('analyse.modeles.ligne', { famille: t(`famille.${f.famille}`), tokens: fmt(f.tokens), pct: pc(Math.round(f.part * 100)) })) };
+    }
+    case 'longues': return { titre: t('analyse.longues.titre'),
+      chiffres: [t('analyse.longues.c1', { auto: d.auto, a: d.auto, manuel: d.manuelles, m: d.manuelles }),
+        ...(d.n ? [t('analyse.longues.c2', { nb: d.n, n: d.n })] : []),
+        ...d.top.map((x) => lien(x, t('analyse.longues.ligne', { titre: conv(x).titre, projet: x.projet, messages: nf.format(x.messages), heures: nf.format(x.heures), tokens: fmt(x.tokens) })))] };
+    default: return null;
+  }
+}
+function carteConstat(c, rang, fermer) {
+  const x = texteConstat(c);
+  if (!x) return null;
+  const vars = x.vars || {};
+  const gravite = { haute: 'grave', moyenne: 'alerte', info: 'neutre' }[c.gravite] || 'neutre';
+  return h('li', { class: 'constat' },
+    h('div', { class: 'constat-tete' }, h('span', { class: 'rang', 'aria-hidden': 'true' }, String(rang)),
+      h('div', {}, h('h3', {}, x.titre),
+        h('div', { class: 'constat-meta' }, h('span', { class: `badge ${gravite}` }, t(`analyse.${c.gravite}`)), h('span', { class: 'muet petit' }, t('analyse.part', { pct: pc(Math.round(c.part * 100)) }))))),
+    h('ul', { class: 'constat-chiffres' }, x.chiffres.map((l) => h('li', {}, typeof l === 'string' ? l
+      : h('button', { class: 'lien', onclick: () => { fermer(); ouvrir(l.id); } }, l.texte)))),
+    x.note ? h('p', { class: 'muet petit' }, x.note) : null,
+    h('p', {}, h('b', {}, `${t('analyse.pourquoi')} : `), t(`analyse.${c.id}.pourquoi`, vars)),
+    h('p', { class: 'constat-action' }, h('b', {}, `${t('analyse.action')} : `), t(x.actionCle || `analyse.${c.id}.action`, vars)));
+}
+function ouvrirAnalyse() {
+  if (analyseOuverte) return;
+  analyseOuverte = true;
+  const precedent = document.activeElement;
+  let jours = Number(localStorage.getItem('relais-analyse-jours')) === 7 ? 7 : 30;
+  let numero = 0;
+  const corps = h('div', { class: 'modale-corps' });
+  const segments = h('div', { class: 'segments', role: 'group', 'aria-label': t('analyse.periode') });
+  const bFermer = h('button', { class: 'bouton fermer-carte', 'aria-label': t('analyse.fermer'), title: t('analyse.fermer'), onclick: () => fermer() }, '×');
+  const fenetre = h('div', { class: 'modale', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'analyse-titre' },
+    h('div', { class: 'entete-carte' }, h('div', {}, h('h2', { id: 'analyse-titre' }, t('analyse.titre')), h('p', { class: 'aide' }, t('analyse.local'))), bFermer),
+    segments, corps);
+  const fond = h('div', { class: 'modale-fond', onmousedown: (ev) => { if (ev.target === fond) fermer(); } }, fenetre);
+  function fermer() {
+    document.removeEventListener('keydown', touche); fond.remove(); analyseOuverte = false; precedent?.focus?.();
+  }
+  function touche(ev) {
+    if (ev.key === 'Escape') { ev.preventDefault(); fermer(); return; }
+    if (ev.key !== 'Tab') return;
+    const f = [...fenetre.querySelectorAll('button, [href], [tabindex="0"]')].filter((e) => !e.disabled);
+    if (!f.length) return;
+    if (ev.shiftKey && document.activeElement === f[0]) { ev.preventDefault(); f.at(-1).focus(); }
+    else if (!ev.shiftKey && document.activeElement === f.at(-1)) { ev.preventDefault(); f[0].focus(); }
+  }
+  function dessinerSegments() {
+    segments.replaceChildren(...[7, 30].map((n) => h('button', { type: 'button', class: `segment${n === jours ? ' actif' : ''}`, 'aria-pressed': String(n === jours),
+      onclick: () => { jours = n; localStorage.setItem('relais-analyse-jours', String(n)); dessinerSegments(); charger(); segments.querySelector('.actif')?.focus(); } }, t(`analyse.${n}`))));
+  }
+  async function charger() {
+    const mien = ++numero;
+    corps.replaceChildren(h('p', { class: 'muet' }, t('analyse.chargement')));
+    const r = await api(`/api/analyse?jours=${jours}`).catch(() => null);
+    if (mien !== numero) return;
+    if (!r) { corps.replaceChildren(h('p', { class: 'muet' }, t('analyse.erreur'))); return; }
+    const jour = (k) => dateDe(k).toLocaleDateString(LOC, { day: 'numeric', month: 'long' });
+    corps.replaceChildren(
+      h('p', { class: 'analyse-resume' }, t('analyse.resume', { jours: r.jours, de: jour(r.de), a: jour(r.a), tokens: fmt(r.tokens), nb: nf.format(r.conversations), n: r.conversations })),
+      r.constats.length ? h('ol', { class: 'constats' }, r.constats.map((c, i) => carteConstat(c, i + 1, fermer))) : h('p', { class: 'muet' }, t('analyse.vide')));
+    corps.scrollTop = 0;
+  }
+  document.addEventListener('keydown', touche);
+  document.body.append(fond);
+  dessinerSegments();
+  bFermer.focus();
+  charger();
 }
 
 // ------------------------------------------------------------------ conversations
@@ -701,7 +1019,7 @@ async function afficherGestion() {
   page.replaceChildren(h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('gestion.titre')), h('p', {}, t('gestion.lecturePlugins')))));
   const projets = await api('/api/gestion/projets').catch(() => []);
   const zone = h('div', {});
-  const ou = choixProjet(projets, { partout: true, onchange: () => remplir() });
+  const ou = choixProjet(projets, { partout: true, onchange: () => (onglet === 'plugins' ? remplir() : remplirManuels()) });
   async function remplir() {
     const projet = ou.valeur();
     zone.replaceChildren(h('p', { class: 'muet' }, t('gestion.lectureEtat')));
@@ -727,12 +1045,58 @@ async function afficherGestion() {
           h('td', {}, t('gestion.jetons', { n: jetons(p.cout) })))))),
       h('p', { class: 'aide' }, t('gestion.total', { n: jetons(total) })));
   }
+  // Second inner tab: skills installed by hand (read-only list).
+  const zoneManuels = h('div', { hidden: true });
+  let onglet = 'plugins';
+  async function remplirManuels() {
+    zoneManuels.replaceChildren(h('p', { class: 'muet' }, t('gestion.lectureEtat')));
+    let r;
+    try { r = await api(`/api/gestion/skills-manuels?projet=${encodeURIComponent(ou.valeur())}`); } catch (e) { zoneManuels.replaceChildren(h('p', { class: 'attention' }, e.message)); return; }
+    zoneManuels.replaceChildren(
+      h('p', { class: 'muet' }, t('gestion.manuelsAide')),
+      r.skills.length ? h('ul', { class: 'skills-manuels' }, r.skills.map((x) => h('li', {},
+        h('div', {}, h('strong', {}, x.nom), ' ',
+          h('span', { class: 'puce' }, x.portee === 'projet' ? t('gestion.porteeProjet') : t('gestion.porteePartout')),
+          x.parRelais ? [' ', h('span', { class: 'puce relais', title: t('gestion.parRelaisAide') }, t('gestion.parRelais'))] : null),
+        x.description ? h('div', { class: 'texte-2' }, x.description) : h('div', { class: 'muet petit' }, t('gestion.sansDescription')),
+        h('div', { class: 'muet petit chemin' }, x.dossier))))
+        : h('p', { class: 'muet' }, t('gestion.manuelsVide')),
+      r.tronque ? h('p', { class: 'aide' }, t('gestion.manuelsTronque', { n: r.skills.length })) : null);
+  }
+  const titre = h('h2', {}, t('gestion.activerDesactiver'));
+  const boutonsOnglets = [['plugins', 'gestion.ongletPlugins'], ['manuels', 'gestion.ongletManuels']].map(([id, cle]) => h('button', {
+    type: 'button', role: 'tab', id: `gestion-onglet-${id}`, class: 'sous-onglet', 'aria-controls': `gestion-panneau-${id}`,
+    onclick: () => choisir(id),
+    onkeydown: (ev) => {
+      const pas = ev.key === 'ArrowRight' ? 1 : ev.key === 'ArrowLeft' ? -1 : 0;
+      if (!pas) return;
+      ev.preventDefault();
+      choisir(onglet === 'plugins' ? 'manuels' : 'plugins', true);
+    },
+  }, t(cle)));
+  function choisir(id, focus = false) {
+    onglet = id;
+    boutonsOnglets.forEach((b, i) => {
+      const actif = (i === 0) === (id === 'plugins');
+      b.setAttribute('aria-selected', String(actif));
+      b.tabIndex = actif ? 0 : -1;
+      b.classList.toggle('actif', actif);
+      if (actif && focus) b.focus();
+    });
+    zone.hidden = id !== 'plugins';
+    zoneManuels.hidden = id !== 'manuels';
+    titre.textContent = t(id === 'plugins' ? 'gestion.activerDesactiver' : 'gestion.manuelsTitre');
+    (id === 'plugins' ? remplir : remplirManuels)();
+  }
+  zone.id = 'gestion-panneau-plugins'; zone.setAttribute('role', 'tabpanel'); zone.setAttribute('aria-labelledby', 'gestion-onglet-plugins');
+  zoneManuels.id = 'gestion-panneau-manuels'; zoneManuels.setAttribute('role', 'tabpanel'); zoneManuels.setAttribute('aria-labelledby', 'gestion-onglet-manuels');
   page.replaceChildren(
     h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('gestion.titre')),
       h('p', {}, t('gestion.intro')))),
-    h('div', { class: 'carte' }, h('h2', {}, t('gestion.activerDesactiver')), h('div', { class: 'formulaire' }, h('label', {}, t('gestion.ou'), ou.el)), zone),
+    h('div', { class: 'carte' }, h('div', { class: 'sous-onglets', role: 'tablist', 'aria-label': t('gestion.onglets') }, boutonsOnglets), titre,
+      h('div', { class: 'formulaire' }, h('label', {}, t('gestion.ou'), ou.el)), zone, zoneManuels),
     h('div', { class: 'carte' }, await sectionProfils(projets)));
-  remplir();
+  choisir('plugins');
 }
 
 async function sectionProfils(projets) {
@@ -1160,6 +1524,7 @@ async function chargerBureau() {
   const b = await r.json().catch(() => null);
   if (!b) return null;
   bureau = b;
+  majStats();
   $('#nav-parametres').hidden = false;
   $('#pastille-maj').hidden = !['disponible', 'pret'].includes(b.maj?.statut);
   const vu = JSON.stringify(b);
@@ -1196,10 +1561,103 @@ function blocMaj(m) {
       h('div', { class: 'actions' }, bouton(t('param.verifier'), '/api/bureau/maj/verifier'))];
   }
 }
+
+// ------------------------------------------------------------------ anonymous statistics (opt-in, desktop app only)
+// The app counts and sends nothing before the answer given in the card below; what is sent is documented in
+// docs/statistiques.md. The page only reports tab openings (the server accepts the 7 tab keys, nothing else).
+const statsActives = () => bureau?.stats?.reponse === true;
+function compterOnglet(page) {
+  if (statsActives()) api('/api/bureau/stats/onglet', { cle: page }).catch(() => {});
+}
+async function repondreStats(accepte) {
+  try { await api('/api/bureau/stats/reponse', { accepte }); } catch (e) { toast(e.message, true); }
+  await chargerBureau();
+}
+let consentement = null;
+function majConsentement() {
+  const doitDemander = !!bureau?.stats?.disponible && bureau.stats.reponse === null;
+  if (!doitDemander) { consentement?.remove(); consentement = null; return; }
+  if (consentement) return;
+  const reponse = (cle, accepte) => h('button', { type: 'button', class: 'bouton', onclick: (ev) => {
+    ev.currentTarget.parentElement.querySelectorAll('button').forEach((x) => { x.disabled = true; });
+    repondreStats(accepte);
+  } }, t(cle));
+  const boite = h('div', { class: 'carte boite', tabindex: '-1' },
+    h('div', { class: 'marque' }, h('span', { class: 'logo', 'aria-hidden': 'true' }), 'Relais'),
+    h('h1', { id: 'consentement-titre' }, t('stats.consent.titre')),
+    h('p', {}, t('stats.consent.intro')),
+    h('h2', {}, t('stats.envoye.titre')),
+    h('ul', {}, [1, 2, 3, 4, 5].map((i) => h('li', {}, t(`stats.envoye${i}`)))),
+    h('h2', {}, t('stats.jamais.titre')),
+    h('p', {}, t('stats.jamais')),
+    h('p', { class: 'muet petit' }, t('stats.consent.rien')),
+    // Same class, same size: neither answer is pushed.
+    h('div', { class: 'actions' }, reponse('stats.consent.accepter', true), reponse('stats.consent.refuser', false)));
+  consentement = h('div', { class: 'consentement', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': 'consentement-titre' }, boite);
+  document.body.append(consentement);
+  boite.focus();
+}
+function majStats() {
+  $('#pied-local').textContent = t(statsActives() ? 'app.localStats' : 'app.local');
+  majConsentement();
+}
+
+let statsApercuOuvert = false;
+let statsMessage = { texte: '', erreur: false };
+function carteStats(b) {
+  const s = b.stats || {};
+  const apercu = h('div', {});
+  const remplirApercu = async () => {
+    if (!statsApercuOuvert) { apercu.replaceChildren(); return; }
+    apercu.replaceChildren(h('p', { class: 'muet petit' }, t('stats.apercuAttente')));
+    try {
+      const j = await api('/api/bureau/stats/apercu');
+      apercu.replaceChildren(s.reponse === true ? null : h('p', { class: 'muet petit' }, t('stats.apercuOff')), h('pre', { class: 'apercu' }, JSON.stringify(j, null, 2)));
+    } catch { apercu.replaceChildren(h('p', { class: 'attention' }, t('stats.apercuErreur'))); }
+  };
+  const message = h('p', { class: statsMessage.erreur ? 'attention' : 'muet', role: 'status' }, statsMessage.texte);
+  const voir = h('button', { type: 'button', class: 'bouton', 'aria-expanded': String(statsApercuOuvert), onclick: (ev) => {
+    statsApercuOuvert = !statsApercuOuvert;
+    ev.currentTarget.setAttribute('aria-expanded', String(statsApercuOuvert));
+    ev.currentTarget.textContent = t(statsApercuOuvert ? 'stats.masquer' : 'stats.voir');
+    remplirApercu();
+  } }, t(statsApercuOuvert ? 'stats.masquer' : 'stats.voir'));
+  const supprimer = h('button', { type: 'button', class: 'bouton', onclick: async (ev) => {
+    const bouton = ev.currentTarget;
+    bouton.disabled = true;
+    const r = await api('/api/bureau/stats/supprimer', {}).catch(() => ({ ok: false, raison: 'refuse' }));
+    statsMessage = { texte: t(r.ok ? 'stats.supprOk' : r.raison === 'hors-ligne' ? 'stats.supprHorsLigne' : 'stats.supprRefuse'), erreur: !r.ok };
+    message.textContent = statsMessage.texte;
+    message.className = statsMessage.erreur ? 'attention' : 'muet';
+    bouton.disabled = false;
+    remplirApercu();
+  } }, t('stats.supprimer'));
+  const coche = h('input', { type: 'checkbox', id: 'coche-stats', checked: s.reponse === true, disabled: !s.disponible,
+    onchange: (ev) => repondreStats(ev.currentTarget.checked) });
+  if (statsApercuOuvert) remplirApercu();
+  return h('div', { class: 'carte' },
+    h('label', { class: 'interrupteur', for: 'coche-stats' }, coche, h('span', { class: 'glissiere', 'aria-hidden': 'true' }),
+      h('div', {}, h('div', { class: 'etat' }, t('stats.titre')),
+        h('div', { class: 'muet' }, !s.disponible ? t('stats.indispo') : s.reponse === true ? t('stats.etatOn') : t('stats.etatOff')))),
+    s.disponible ? h('div', { class: 'stats-details' },
+      h('h3', {}, t('stats.envoye.titre')),
+      h('ul', {}, [1, 2, 3, 4, 5].map((i) => h('li', {}, t(`stats.envoye${i}`)))),
+      h('h3', {}, t('stats.jamais.titre')),
+      h('p', { class: 'muet' }, t('stats.jamais')),
+      h('div', { class: 'actions' }, voir, supprimer),
+      h('p', { class: 'muet petit' }, t('stats.supprAide')),
+      message, apercu) : null);
+}
+
 function afficherParametres() {
   const b = bureau;
   const page = $('#page-parametres');
-  if (!b) { page.replaceChildren(h('p', { class: 'muet' }, t('param.horsBureau'))); return; }
+  const histo = h('div', { class: 'carte bloc', id: 'carte-histo' });
+  if (!b) {
+    page.replaceChildren(h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('nav.parametres')))), histo, h('p', { class: 'muet' }, t('param.horsBureau')));
+    chargerHistorique();
+    return;
+  }
   const d = b.demarrage || {};
   const coche = h('input', { type: 'checkbox', id: 'coche-demarrage', checked: d.actif, disabled: !d.disponible,
     onchange: (ev) => actionBureau('/api/bureau/demarrage', { actif: ev.currentTarget.checked }) });
@@ -1209,14 +1667,44 @@ function afficherParametres() {
       h('div', {}, h('div', { class: 'etat' }, t('param.demarrage')),
         h('div', { class: 'muet' }, !d.disponible ? t('param.demarrageIndispo')
           : d.actif ? t('param.demarrageOn') : t('param.demarrageOff'))))),
+    carteStats(b),
+    histo,
     h('div', { class: 'grille-2' },
       h('div', { class: 'carte' }, h('h2', {}, t('param.majs')), h('p', {}, `${t('param.versionInstallee')} `, h('b', {}, b.version)), ...blocMaj(b.maj || {})),
       h('div', { class: 'carte' }, h('h2', {}, t('commun.bonASavoir')),
         h('ol', { class: 'etapes' },
           h('li', {}, t('param.savoir1', { source: b.maj?.source || 'GitHub' })),
           h('li', {}, t('param.savoir2')),
-          h('li', {}, t('param.savoir3'))))),
+          h('li', {}, t('param.savoir3')),
+          h('li', {}, t('param.savoir4'))))),
   );
+}
+// How long Claude Code keeps the conversation logs (cleanupPeriodDays in its settings.json), and what they weigh.
+async function chargerHistorique() {
+  const zone = $('#carte-histo');
+  if (!zone) return;
+  const r = await api('/api/historique').catch(() => null);
+  if (!$('#carte-histo')) return;
+  if (!r) { zone.replaceChildren(h('h2', {}, t('param.histo.titre')), h('p', { class: 'muet' }, t('param.histo.erreur'))); return; }
+  const nom = (n) => (r.choix.includes(n) ? t(`param.histo.${n}`) : t('param.histo.autre', { n }));
+  const options = r.jours === null || r.choix.includes(r.jours) ? r.choix : [...r.choix, r.jours].sort((a, b) => a - b);
+  let choisi = r.jours;
+  const appliquer = h('button', { class: 'bouton principal', disabled: true, onclick: async (ev) => {
+    ev.currentTarget.disabled = true;
+    try { const m = await api('/api/historique', { jours: choisi }); toast(m.message || t('param.histo.fait')); } catch (e) { toast(e.message, true); }
+    chargerHistorique();
+  } }, t('param.histo.appliquer'));
+  remplacer(zone,
+    h('h2', {}, t('param.histo.titre')),
+    h('p', { class: 'aide' }, t('param.histo.aide')),
+    r.ok === false ? h('div', { class: 'avertissement' }, r.message) : [
+      h('p', {}, h('b', {}, t('param.histo.actuel', { duree: nom(r.jours) }))),
+      h('fieldset', { class: 'choix-histo' }, h('legend', {}, t('param.histo.groupe')),
+        options.map((n) => h('label', {}, h('input', { type: 'radio', name: 'histo', value: String(n), checked: n === r.jours,
+          onchange: () => { choisi = n; appliquer.disabled = n === r.jours; } }), ` ${nom(n)}`))),
+      h('div', { class: 'actions' }, appliquer)],
+    h('p', { class: 'muet' }, t('param.histo.taille', { taille: mo(r.octets), nb: nf.format(r.fichiers), n: r.fichiers })),
+    h('p', { class: 'muet petit' }, t('param.histo.note')));
 }
 const bureauPret = chargerBureau(); // awaited before restoring the last page shown
 setInterval(() => { if (bureau) chargerBureau(); }, 2000);
@@ -1243,7 +1731,10 @@ async function rafraichirConversations() {
   if (JSON.stringify(l.map((c) => [c.id, c.tot.appels])) === avant) return;
   remplirProjets();
   if (etat.page === 'conversations') { afficherListe(); afficherOnglets(); if (etat.actif) afficherDetail(true); }
-  if (etat.page === 'vue') afficherVue();
+  if (etat.page === 'vue') {
+    // the live view patches today's figures by itself: the whole page is rebuilt at most every 30 s
+    if (Date.now() - etat.derniereVue > 30000) afficherVue(); else etat.vueEnRetard = true;
+  }
 }
 $('#actualiser').addEventListener('click', async () => { await api('/api/actualiser', {}).catch(() => {}); toast(t('app.relectureLancee')); setTimeout(cycle, 1500); });
 async function cycle() { await rafraichirEtat(); await rafraichirConversations(); await rafraichirEtat(); }
@@ -1278,7 +1769,7 @@ async function verifierCompte(forcer) {
     demarre = true;
     await cycle();
     await bureauPret;
-    allerA(['vue', 'conversations', 'skills', 'gestion', 'memoire', 'avocat', ...(bureau ? ['parametres'] : [])].includes(etat.page) ? etat.page : 'vue');
+    allerA(['vue', 'conversations', 'skills', 'gestion', 'memoire', 'avocat', 'parametres'].includes(etat.page) ? etat.page : 'vue');
     setInterval(cycle, 4000);
     setInterval(() => verifierCompte(false), 60000);
   }

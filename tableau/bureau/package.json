@@ -1,7 +1,7 @@
 {
   "name": "relais-bureau",
   "productName": "Relais",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "description": "Tableau relais : application de bureau (fenêtre dédiée autour du serveur local du tableau).",
   "author": "Nathan Gerardeaux",
   "license": "GPL-3.0-or-later",
@@ -44,9 +44,12 @@
           "langue.mjs",
           "memoire.mjs",
           "chat-regles.mjs",
+          "statistiques.mjs",
+          "historique.mjs",
           "public/index.html",
           "public/app.js",
           "public/i18n.js",
+          "public/periodes.js",
           "public/style.css",
           "public/demo-remotion.mp4"
         ]

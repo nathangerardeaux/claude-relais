@@ -204,10 +204,19 @@ du compte et le forfait. En français ou en anglais, selon la langue du système
 |---|---|---|---|
 | relais, avocat (scripts) | **aucun** (seulement des appels `git` locaux) | la fin de votre journal Claude Code | `~/.claude/relais/`, `~/.claude/avocat/` (sous `$CLAUDE_CONFIG_DIR` s'il est défini) |
 | avocat (l'agent vérificateur) | peut faire des recherches web, comme tout agent Claude | vos fichiers, en lecture seule | rien |
-| Tableau / appli | écoute sur **127.0.0.1 seulement** ; sorties seulement pour les mises à jour de l'appli (GitHub) et les boutons que vous cliquez (installations, un fichier de design) | vos journaux, en lecture seule ; **jamais un jeton de connexion** | un index local (`tableau/.cache/`, avec de courts extraits de messages), le registre, les réglages |
+| Tableau / appli | écoute sur **127.0.0.1 seulement** ; sorties seulement pour les mises à jour de l'appli (GitHub), les boutons que vous cliquez (installations, un fichier de design) et, seulement si vous avez accepté, les statistiques anonymes ci-dessous | vos journaux, en lecture seule ; **jamais un jeton de connexion** | un index local (`tableau/.cache/`, avec de courts extraits de messages), le registre, les réglages |
 | Chat « règles » | envoie le registre à Claude via `claude -p`, sans outil | le registre | seulement les cartes que vous appliquez |
 | images | téléchargements à l'installation (GitHub, Hugging Face, pip) ; Stable Diffusion tourne sur 127.0.0.1 ; **le moteur Codex envoie votre prompt à OpenAI** | | les images dans votre projet |
 
+- **Statistiques d'usage anonymes (appli de bureau seulement, désactivées tant que vous n'avez pas dit
+  oui).** À la première ouverture, l'appli pose la question une fois. Si vous acceptez, elle envoie un
+  petit résumé quotidien à `api.nybo.fr` : temps avec la fenêtre au premier plan, nombre d'ouvertures de
+  chaque onglet, plugins relais / avocat / images installés ou non (version, relais écrits sur 7 jours,
+  avocat du diable activé ou non), versions de l'appli, de Windows, de Claude Code et de Node.js, et la
+  langue, sous un identifiant aléatoire. Jamais d'e-mail, de nom, de chemin, de nom de projet ni de
+  contenu de conversation. Vous pouvez la couper, voir le JSON exact ou supprimer vos données du serveur
+  dans **Paramètres**. Les plugins eux-mêmes n'envoient rien. Format exact :
+  [docs/statistiques.md](docs/statistiques.md).
 - Un relais contient des informations sur votre projet (chemins, décisions). Il reste sur votre disque.
   Claude a pour consigne de n'y mettre **aucun secret**, et la reprise signale ce qui y ressemble ;
   relisez-le si votre projet est sensible.

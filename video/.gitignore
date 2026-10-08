@@ -13,3 +13,5 @@ narration/femme/
 narration/homme/
 narration/references/it_m1.flac
 public/voix/homme/
+public/musique-v3.wav
+narration/__pycache__/

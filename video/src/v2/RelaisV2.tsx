@@ -45,7 +45,7 @@ export const RelaisV2: React.FC<PropsV2> = ({ voix }) => {
 // Authorship watermark: the repository address tiled diagonally over the whole picture, barely visible
 // on the dark set (a single corner link is easy to crop out, a tiled one is not).
 const LIEN = "github.com/nathangerardeaux/claude-relais";
-const Filigrane: React.FC = () => (
+export const Filigrane: React.FC = () => (
   <AbsoluteFill style={{ pointerEvents: "none", overflow: "hidden" }}>
     <div style={{ position: "absolute", left: -600, top: -500, width: 3200, height: 2200, transform: "rotate(-18deg)", display: "flex", flexDirection: "column", gap: 150 }}>
       {Array.from({ length: 12 }, (_, l) => (

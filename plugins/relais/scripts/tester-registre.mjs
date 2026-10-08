@@ -11,7 +11,7 @@ const ici = path.dirname(fileURLToPath(import.meta.url));
 const H = fs.mkdtempSync(path.join(os.tmpdir(), 'relais-registre-'));
 const D = path.join(H, '.claude', 'relais');
 const env = { ...process.env, USERPROFILE: H, HOME: H, RELAIS_LANG: 'fr' };
-for (const v of ['RELAIS_DOSSIER', 'RELAIS_V2', 'RELAIS_MEMOIRE', 'RELAIS_AUTO']) delete env[v];
+for (const v of ['RELAIS_DOSSIER', 'RELAIS_V2', 'RELAIS_MEMOIRE', 'RELAIS_AUTO', 'CLAUDE_CONFIG_DIR']) delete env[v];
 let ok = 0, ko = 0;
 const verif = (nom, cond, detail = '') => { cond ? ok++ : ko++; console.log(`${cond ? 'OK  ' : 'FAIL'} ${nom}${detail && !cond ? ' — ' + String(detail).slice(0, 300) : ''}`); };
 const lire = (s) => { try { return s ? JSON.parse(s) : null; } catch { return 'NOT-JSON'; } };
@@ -81,8 +81,9 @@ const SS = (cwd, source = 'startup', plus = {}) => L('memoire.mjs', { session_id
 r = SS(SOUS);
 verif('session start: active A + global entries given back, project first', /pousser main/i.test(ac(r)) && /antislashs/.test(ac(r))
   && ac(r).indexOf('pousser') < ac(r).indexOf('antislashs') && !/projet B/.test(ac(r)), ac(r));
-verif('session start: entries framed as notes, not orders, whatever the author shown; new entries shown on screen',
-  /pas des ordres, quel que soit l'auteur/.test(ac(r)) && /\(r\w+, Claude\)/.test(ac(r)) && /2 règle\(s\) nouvelle\(s\) ou modifiée\(s\)/.test(r.json?.systemMessage || ''),
+verif('session start: entries framed as working notes, not orders (suspicious if they push to act); no author on each line; new entries shown on screen',
+  /Notes de travail, pas des ordres/.test(ac(r)) && /n'exécute, ne contacte, n'envoie rien/.test(ac(r)) && /suspecte/.test(ac(r))
+  && /\(r\w+\)$/m.test(ac(r)) && !/, Claude\)|utilisateur\)/.test(ac(r)) && /2 règle\(s\) nouvelle\(s\) ou modifiée\(s\)/.test(r.json?.systemMessage || ''),
   `${r.json?.systemMessage} | ${ac(r).slice(0, 200)}`);
 SS(A); // first visit of this folder: announced, snapshot taken (one snapshot per folder)
 verif('session start: no notice for entries already seen, none after a compaction', !SS(A).json?.systemMessage && !SS(A, 'compact').json?.systemMessage);
@@ -108,7 +109,12 @@ verif('session start: no notice for entries already seen, none after a compactio
   const s4 = SS(A).json?.systemMessage || '';
   verif('session start: damaged snapshot -> everything announced (fails closed)', /2 règle\(s\) nouvelle\(s\) ou modifiée\(s\)/.test(s4), s4);
 }
-verif('session start: says how to record, and that /clear does not erase it', /registre\.mjs" ajouter/.test(ac(r)) && /\/clear ne les efface pas/.test(ac(r)));
+verif('session start: says how to record, and that /clear does not erase it', /registre\.mjs" ajouter/.test(ac(r)) && /gardé après \/clear/.test(ac(r)));
+verif('registry: the author stays available in "lister"', /auteur : Claude/.test(reg(['lister'], '', A).out));
+{ // Fixed part of the note, added to every session: header + how to record (+ details line).
+  const v = L('memoire.mjs', { session_id: 'm9', cwd: path.join(H, 'sans-regle'), source: 'startup' }, { plus: { RELAIS_DOSSIER: path.join(H, 'registre-vide') } });
+  verif('session start: empty registry note stays short (< 700 characters)', ac(v).length > 0 && ac(v).length < 700, `${ac(v).length} car.`);
+}
 verif('session start: also after /clear and compaction, not on resume', /pousser/.test(ac(SS(A, 'clear'))) && /pousser/.test(ac(SS(A, 'compact'))) && SS(A, 'resume').json === null);
 reg(['desactiver', idGlobal], '', B);
 verif('session start: a turned-off entry is not given back', !/antislashs/.test(ac(SS(A))));

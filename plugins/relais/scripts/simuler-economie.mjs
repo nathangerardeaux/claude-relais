@@ -7,10 +7,9 @@
 //   node simuler-economie.mjs --top [n=5]                     your n heaviest conversations
 //   node simuler-economie.mjs <log.jsonl> [threshold_k=150] [baseline_k=auto]
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
-import { langue } from './commun.mjs';
+import { langue, dossierClaude } from './commun.mjs';
 
 const FR = langue() === 'fr';
 const M = (n) => `${(n / 1e6).toFixed(0)} M`;
@@ -68,12 +67,12 @@ if (!args.length) {
 
 let fichiers, seuil = 150000, socle;
 if (args[0] === '--top') {
-  const racine = path.join(os.homedir(), '.claude', 'projects');
+  const racine = path.join(dossierClaude(), 'projects');
   const tous = fs.existsSync(racine) ? fs.readdirSync(racine).flatMap((d) => {
     const dd = path.join(racine, d);
     try { return fs.readdirSync(dd).filter((f) => f.endsWith('.jsonl')).map((f) => path.join(dd, f)); } catch { return []; }
   }) : [];
-  if (!tous.length) { console.log(FR ? 'Aucune conversation trouvée dans ~/.claude/projects.' : 'No conversation found in ~/.claude/projects.'); process.exit(0); }
+  if (!tous.length) { console.log(FR ? `Aucune conversation trouvée dans ${racine}.` : `No conversation found in ${racine}.`); process.exit(0); }
   tous.sort((a, b) => fs.statSync(b).size - fs.statSync(a).size);
   fichiers = tous.slice(0, Number(args[1] || 5));
   socle = socleMesure(tous.slice(0, 60));

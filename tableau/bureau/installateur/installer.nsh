@@ -38,6 +38,9 @@ LangString RelaisOptLancer 1036 "Lancer Relais à la fin de l'installation"
 LangString RelaisOptLancer 1033 "Launch Relais when the installation ends"
 LangString RelaisOptNote 1036 "Le démarrage avec Windows se change ensuite dans Relais, page Paramètres."
 LangString RelaisOptNote 1033 "Starting with Windows can be changed later in Relais, Settings page."
+; Finish page: what the plugins need, so a first-time user is not left with plugins that silently do nothing.
+LangString RelaisFinTexte 1036 "Relais est installé.$\r$\n$\r$\nPour que les plugins marchent :$\r$\n- Claude Code installé et connecté (claude auth login) ;$\r$\n- Node.js 18 ou plus récent (nodejs.org, version LTS) : sans lui, les plugins s'installent mais ne font rien ;$\r$\n- après chaque installation de plugin (onglet Skills), ferme et relance Claude Code.$\r$\n$\r$\nL'onglet Skills de Relais vérifie tout ça pour toi."
+LangString RelaisFinTexte 1033 "Relais is installed.$\r$\n$\r$\nFor the plugins to work:$\r$\n- Claude Code installed and signed in (claude auth login);$\r$\n- Node.js 18 or newer (nodejs.org, LTS version): without it the plugins install but do nothing;$\r$\n- after installing a plugin (Skills tab), close and reopen Claude Code.$\r$\n$\r$\nThe Skills tab of Relais checks all this for you."
 
 !define RELAIS_CLE_RUN "Software\Microsoft\Windows\CurrentVersion\Run"
 !define RELAIS_CLE_APPROUVE "Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run"
@@ -188,6 +191,7 @@ LangString RelaisOptNote 1033 "Starting with Windows can be changed later in Rel
     ${EndIf}
   FunctionEnd
   !define MUI_PAGE_CUSTOMFUNCTION_LEAVE RelaisFinQuitter
+  !define MUI_FINISHPAGE_TEXT "$(RelaisFinTexte)"
   !insertmacro MUI_PAGE_FINISH
 !macroend
 

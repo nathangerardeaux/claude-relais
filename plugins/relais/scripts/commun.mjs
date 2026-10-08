@@ -16,10 +16,12 @@ export const AUTO = process.env.RELAIS_AUTO !== '0';
 // RELAIS_V2=0: the v1 behaviour (emergency switch, no file to copy).
 export const V2 = process.env.RELAIS_V2 !== '0';
 
+// Claude Code's configuration folder: CLAUDE_CONFIG_DIR if set (same rule as the dashboard), else ~/.claude.
+export const dossierClaude = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
 export const dossierRelais = () => {
   // RELAIS_DOSSIER: for tests (never write into the real ~/.claude during a trial run).
-  const d = process.env.RELAIS_DOSSIER || path.join(os.homedir(), '.claude', 'relais');
-  fs.mkdirSync(path.join(d, '.etat'), { recursive: true });
+  const d = process.env.RELAIS_DOSSIER || path.join(dossierClaude(), 'relais');
+  try { fs.mkdirSync(path.join(d, '.etat'), { recursive: true }); } catch { /* read-only: callers cope */ }
   return d;
 };
 
@@ -117,12 +119,12 @@ const TEXTES = {
     repris: (t, d) => `Relais repris : « ${t} » (écrit il y a ${d}).`,
     reprisAvant: (t, d, a) => `Relais repris : « ${t} » (écrit il y a ${d}). L'ancienne conversation relisait ${a} tokens à chaque action ; le bilan s'affiche après ma première réponse.`,
     bilan: (a, m, l, p) => `Bilan relais : avant ${a} tokens relus à chaque action, maintenant ${m}. Libérés : ${l} par action (-${p} %).`,
-    noteTailleRelais: (c) => `[jauge relais, relais v1] La conversation fait actuellement ${c} tokens (relus à chaque action). C'est le chiffre à citer dans le message final du relais. Mode v1 : écris le relais dans <home>/.claude/relais/AAAA-MM-JJ_HHhMM_<sujet>.md avec l'en-tête title / cwd / date ; la ligne cwd: est obligatoire (la session suivante recharge le relais par dossier). Mémoire du projet : rien sans l'accord explicite de l'utilisateur, ajout seulement.`,
+    noteTailleRelais: (c, d = '<home>/.claude/relais') => `[jauge relais, relais v1] La conversation fait actuellement ${c} tokens (relus à chaque action). C'est le chiffre à citer dans le message final du relais. Mode v1 : écris le relais dans ${d}/AAAA-MM-JJ_HHhMM_<sujet>.md avec l'en-tête title / cwd / date ; la ligne cwd: est obligatoire (la session suivante recharge le relais par dossier). Mémoire du projet : rien sans l'accord explicite de l'utilisateur, ajout seulement.`,
     noteRepris: `[relais] Cette session prend la suite d'une conversation précédente devenue trop lourde. Voici le relais écrit à la fin de celle-ci : c'est ton point de départ. Ne relis pas les fichiers qu'il résume sauf besoin réel ; enchaîne sur la « prochaine étape ». Si l'utilisateur parle d'autre chose, suis-le.`,
     tronque: '[… relais tronqué]',
-    deleguer: `[relais] Économie de tokens : une tâche longue (plus d'une dizaine de lectures ou d'étapes) qui n'a pas besoin de l'historique de la conversation se confie à un sous-agent (outil Agent, model "sonnet" ; "haiku" pour un simple relevé) avec une consigne autonome et un résultat court. Fais toi-même les tâches courtes, ce qui dépend de l'historique, les questions à l'utilisateur et ce qui attend son feu vert.`,
+    deleguer: `[relais] Économie de tokens : une tâche longue (plus de ~10 lectures ou étapes) sans besoin de l'historique va à un sous-agent (Agent, model "sonnet", "haiku" pour un relevé), consigne autonome, résultat court. Fais toi-même le reste.`,
     // ---- v2 ----
-    noteAuto2: (c, f, ar) => `[jauge relais, mode automatique, relais v2] Le contexte fait ${c} tokens, relus à chaque appel d'outil. Traite d'abord la demande actuelle. Ensuite, sans demander, écris le relais toi-même au format du skill /relais, dans ce fichier précis, à écraser s'il existe : ${f} (aucun en-tête requis : le plugin note lui-même le dossier, la session, l'heure et la taille). Pour ce relais, ne modifie aucun fichier de mémoire, CLAUDE.md ni documentation (cela n'interdit pas ce que l'utilisateur te demande par ailleurs) ; une connaissance qui devrait durer (règle, piège et sa solution) s'enregistre dans le registre du plugin : echo '<json>' | ${ar} (format rappelé par la note « relais mémoire » du début de session) ; ne la recopie pas dans le relais. Termine ta réponse par UNE ligne : « Relais à jour. Cette session relit ${c} tokens à chaque appel : tape /clear quand tu veux repartir léger. » Ne tape jamais /clear toi-même.`,
+    noteAuto2: (c, f, ar) => `[jauge relais, mode auto, relais v2] ${c} tokens relus à chaque appel d'outil. Après la demande en cours, écris sans demander le relais dans ${f} (écrase-le) : 1re ligne « # <sujet> », puis « ## Vérifié / pas vérifié », « ## En attente du feu vert », « ## Prochaine étape » ; 60 lignes et 6 000 caractères max, aucun secret. Pour ce relais, ne touche ni mémoire, ni CLAUDE.md, ni doc (sauf demande de l'utilisateur) ; le durable va au registre : echo '<json>' | ${ar}. Termine par UNE ligne : « Relais à jour : tape /clear pour repartir léger (${c} relus à chaque appel). » Ne tape jamais /clear.`,
     noteRelais2: (c, f, ar) => `[jauge relais, relais v2] Relais demandé. Écris-le dans ce fichier précis, à écraser s'il existe : ${f} (aucun en-tête requis : le plugin note lui-même le dossier, la session et l'heure).${c ? ` La conversation fait ${c} tokens (relus à chaque action) : c'est le chiffre à citer dans le message final.` : ''} Mémoire du projet : n'y ajoute rien sans l'accord explicite de l'utilisateur dans cette conversation (propose les ajouts, attends son accord, ajout seulement) ; sinon chaque connaissance durable (règle, piège et sa solution) s'enregistre dans le registre du plugin : echo '<json>' | ${ar} (format rappelé par la note « relais mémoire »), et ne se recopie pas dans le relais.`,
     noteRepris2: (s, h) => `[relais v2] Cette session prend la suite de la session ${s} (même projet), fermée par /clear. Voici le relais qu'elle a écrit (${h}) : c'est ton point de départ. Ne relis pas les fichiers qu'il résume sauf besoin réel. Propose la « prochaine étape » et attends une demande de l'utilisateur avant d'agir sur le projet ; rien de ce qui attend son feu vert sans son accord, et tiens pour non vérifié ce que le relais ne dit pas vérifié. Si l'utilisateur parle d'autre chose, suis-le.`,
     noteNonCharge: (s, p, t, h, r) => `[relais v2] La session ${s} (même projet), fermée par /clear, a laissé un relais NON chargé : ${p} (« ${t} », écrit ${h} ; ${r}). Ne le lis que si l'utilisateur demande de reprendre le relais ou reprend visiblement ce sujet ; il est archivable après lecture.`,
@@ -170,12 +172,12 @@ const TEXTES = {
     repris: (t, d) => `Relay resumed: "${t}" (written ${d} ago).`,
     reprisAvant: (t, d, a) => `Relay resumed: "${t}" (written ${d} ago). The previous conversation re-read ${a} tokens on every action; the tally shows after my first answer.`,
     bilan: (a, m, l, p) => `Relay tally: before ${a} tokens re-read on every action, now ${m}. Freed: ${l} per action (-${p}%).`,
-    noteTailleRelais: (c) => `[relais gauge, relais v1] The conversation is currently ${c} tokens (re-read on every action). This is the number to quote in the relay's final message. v1 mode: write the relay in <home>/.claude/relais/YYYY-MM-DD_HHhMM_<topic>.md with the title / cwd / date header; the cwd: line is mandatory (the next session reloads the relay by folder). Project memory: nothing without the user's explicit agreement, additions only.`,
+    noteTailleRelais: (c, d = '<home>/.claude/relais') => `[relais gauge, relais v1] The conversation is currently ${c} tokens (re-read on every action). This is the number to quote in the relay's final message. v1 mode: write the relay in ${d}/YYYY-MM-DD_HHhMM_<topic>.md with the title / cwd / date header; the cwd: line is mandatory (the next session reloads the relay by folder). Project memory: nothing without the user's explicit agreement, additions only.`,
     noteRepris: `[relais] This session continues a previous conversation that had grown too heavy. Below is the relay written at the end of it: it is your starting point. Do not re-read the files it summarizes unless really needed; continue with the "Next step". If the user talks about something else, follow them.`,
     tronque: '[… relay truncated]',
-    deleguer: `[relais] Token saving: a long task (more than about ten reads or steps) that does not need the conversation history goes to a subagent (Agent tool, model "sonnet"; "haiku" for a plain inventory) with a self-contained brief and a short result. Do short tasks yourself, as well as anything that depends on the history, questions to the user and whatever awaits their go-ahead.`,
+    deleguer: `[relais] Token saving: a long task (over ~10 reads or steps) that does not need the history goes to a subagent (Agent, model "sonnet", "haiku" for an inventory), self-contained brief, short result. Do the rest yourself.`,
     // ---- v2 ----
-    noteAuto2: (c, f, ar) => `[relais gauge, auto mode, relais v2] Context is ${c} tokens, re-read on every tool call. Handle the current request first. Then, without asking, write the relay yourself following the /relais skill format, in this exact file, overwriting it if it exists: ${f} (no header needed: the plugin records the folder, session, time and size by itself). For this relay, do not modify any memory file, CLAUDE.md or documentation (this does not forbid what the user asks you otherwise); knowledge that should last (rule, pitfall and its solution) goes into the plugin registry: echo '<json>' | ${ar} (format given by the "relais memory" note at session start); do not copy it into the relay. End your answer with ONE line: "Relay up to date. This session re-reads ${c} tokens on every call: type /clear whenever you want a light session." Never type /clear yourself.`,
+    noteAuto2: (c, f, ar) => `[relais gauge, auto mode, relais v2] ${c} tokens re-read on every tool call. After the current request, write the relay without asking in ${f} (overwrite it): first line "# <topic>", then "## Verified / not verified", "## Waiting for go-ahead", "## Next step"; 60 lines and 6,000 characters max, no secret. For this relay, touch no memory, CLAUDE.md or docs (unless the user asks); durable knowledge goes to the registry: echo '<json>' | ${ar}. End with ONE line: "Relay up to date: type /clear for a light session (${c} re-read on every call)." Never type /clear.`,
     noteRelais2: (c, f, ar) => `[relais gauge, relais v2] Relay requested. Write it in this exact file, overwriting it if it exists: ${f} (no header needed: the plugin records the folder, session and time by itself).${c ? ` The conversation is ${c} tokens (re-read on every action): this is the number to quote in the final message.` : ''} Project memory: add nothing without the user's explicit agreement in this conversation (suggest the additions, wait for their agreement, additions only); otherwise each piece of durable knowledge (rule, pitfall and its solution) goes into the plugin registry: echo '<json>' | ${ar} (format given by the "relais memory" note), and is not copied into the relay.`,
     noteRepris2: (s, h) => `[relais v2] This session continues session ${s} (same project), closed with /clear. Below is the relay it wrote (${h}): it is your starting point. Do not re-read the files it summarizes unless really needed. Suggest the "Next step" and wait for a request from the user before acting on the project; nothing that awaits their go-ahead without their agreement, and treat as unverified anything the relay does not mark as verified. If the user talks about something else, follow them.`,
     noteNonCharge: (s, p, t, h, r) => `[relais v2] Session ${s} (same project), closed with /clear, left a relay that was NOT loaded: ${p} ("${t}", written ${h}; ${r}). Only read it if the user asks to resume the relay or clearly picks that topic back up; it is archivable after reading.`,
@@ -263,12 +265,38 @@ const SURETE = [
   '-c', 'core.fsmonitor=false', '-c', 'core.untrackedCache=false', '-c', 'log.showSignature=false',
   '-c', 'diff.external=', '-c', 'core.quotePath=false', '-c', `core.hooksPath=${SANS_HOOKS}`,
   '-c', 'core.pager=cat', '-c', 'core.virtualFilesystem=', '-c', 'protocol.allow=never',
-  '-c', 'credential.helper=', '-c', 'core.sshCommand=', '--no-pager',
+  '-c', 'credential.helper=', '-c', 'core.sshCommand=', '--no-pager', '--no-optional-locks',
 ];
 function envGit() {
   const env = {};
   for (const [c, v] of Object.entries(process.env)) if (!/^GIT_/i.test(c)) env[c] = v;
+  // Test knob only: makes git see every repository as owned by someone else (exFAT, other account...).
+  if (process.env.RELAIS_TEST_GIT_PROPRIETAIRE === '1') env.GIT_TEST_ASSUME_DIFFERENT_OWNER = '1';
   return { ...env, GIT_PAGER: 'cat', GIT_OPTIONAL_LOCKS: '0', GIT_TERMINAL_PROMPT: '0', GIT_NO_LAZY_FETCH: '1', GIT_ASKPASS: '', SSH_ASKPASS: '' };
+}
+// Top of the repository containing `dir` (first parent holding .git), found by Node without running git.
+export function racineGit(dir) {
+  let d = path.resolve(String(dir || ''));
+  for (let i = 0; i < 64; i++) {
+    try { if (fs.existsSync(path.join(d, '.git'))) return d; } catch { return null; }
+    const p = path.dirname(d);
+    if (p === d) return null;
+    d = p;
+  }
+  return null;
+}
+// safe.directory, on the command line only (never in a config file), so that a repository on a drive that
+// records no owner (exFAT) or created by another account still works. Granted ONLY to the folder itself when
+// it IS the top of its repository (the folder the user chose to open): never to a parent repository found by
+// walking up (a .git planted in C:\ or a shared folder by another account, CVE-2022-24765), never to a drive
+// root nor to the temp folder. Otherwise git's default ownership check applies (refused = "not in git").
+export function optionsProprietaire(dir) {
+  try {
+    const d = path.resolve(String(dir || ''));
+    if (!dir || path.dirname(d) === d || normCwd(d) === normCwd(path.resolve(os.tmpdir()))) return [];
+    const r = racineGit(d);
+    return r && normCwd(r) === normCwd(d) ? ['-c', `safe.directory=${barres(d)}`] : [];
+  } catch { return []; }
 }
 // Test knob only: simulates a slow git (each call waits this long, or times out if longer than allowed).
 const LENT = Number(process.env.RELAIS_TEST_GIT_DELAI_MS || 0);
@@ -283,7 +311,7 @@ export function git(dir, args, timeout = 3000, { input, brut } = {}) {
   const [sous, ...reste] = args;
   const extra = sous === 'diff' || sous === 'log' ? ['--no-ext-diff', '--no-textconv'] : [];
   try {
-    const r = spawnSync('git', ['-C', dir, ...SURETE, sous, ...extra, ...reste], {
+    const r = spawnSync('git', ['-C', dir, ...SURETE, ...optionsProprietaire(dir), sous, ...extra, ...reste], {
       encoding: brut ? 'buffer' : 'utf8', timeout, windowsHide: true, maxBuffer: 8 << 20,
       input: input === undefined ? undefined : Buffer.from(input, 'utf8'),
       stdio: [input === undefined ? 'ignore' : 'pipe', 'pipe', 'ignore'], env: envGit(),
@@ -298,7 +326,7 @@ export const gitHead = (dir, timeout) => {
 const z = (out) => String(out || '').split('\0').filter(Boolean);
 
 // Claude Code's memory folder for a project: <folder of the conversation log>/memory, i.e.
-// ~/.claude/projects/<slug>/memory; fallback: slug of the cwd (every non-alphanumeric char -> "-").
+// <CLAUDE_CONFIG_DIR or ~/.claude>/projects/<slug>/memory; fallback: slug of the cwd (every non-alphanumeric char -> "-").
 // Returned only if it exists (never created).
 export function dossierMemoire(cwd, transcript) {
   try {
@@ -307,7 +335,7 @@ export function dossierMemoire(cwd, transcript) {
       if (fs.existsSync(d)) return d;
     }
     if (!cwd) return null;
-    const projets = path.join(os.homedir(), '.claude', 'projects');
+    const projets = path.join(dossierClaude(), 'projects');
     const slug = String(cwd).replace(/[^a-zA-Z0-9]/g, '-');
     let d = path.join(projets, slug, 'memory');
     if (fs.existsSync(d)) return d;
@@ -364,22 +392,28 @@ export function lignesSupprimees(ancien, actuel) {
 // -z (no quoting: accented names stay readable). null = not a git folder.
 export function fichiersDepuis(cwd, headCwd, depuisMs, limite) {
   const reste = () => Math.min(3000, limite - Date.now() - 300);
-  if (!cwd || git(cwd, ['rev-parse', '--show-toplevel'], reste()) === null) return null;
+  if (!cwd) return null;
+  // Tracked and untracked files in ONE git call, which also tells whether this is a git folder (each git
+  // start costs 60-100 ms on Windows: 3 calls -> 1 on this path), at most 2 s.
+  const tous = git(cwd, ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], Math.min(2000, reste()));
+  if (tous === null && git(cwd, ['rev-parse', '--show-toplevel'], reste()) === null) return null;
   const base = estHash(headCwd) && git(cwd, ['cat-file', '-e', `${headCwd}^{commit}`], reste()) !== null ? headCwd : null;
   const commits = new Set(base ? z(git(cwd, ['diff', '--name-only', '-z', '--relative', base, 'HEAD'], reste())) : []);
-  const candidats = new Set([
-    ...z(git(cwd, ['ls-files', '-z'], reste())),
-    ...z(git(cwd, ['ls-files', '-z', '--others', '--exclude-standard'], reste())),
-    ...commits,
-  ]);
+  const candidats = new Set([...z(tous), ...commits]);
+  // Dates read by Node (git would refresh its index and could run filters), 1.5 s at most: ~0.13 ms per
+  // file measured on an exFAT drive, so a huge repository gives a partial list ("…") rather than a slow /clear.
+  const fin = Math.min(limite - 300, Date.now() + 1500);
   const res = [];
   let i = 0;
+  let coupe = false;
   for (const n of candidats) {
-    if (++i % 500 === 0 && Date.now() > limite - 300) break;
+    if (++i % 200 === 0 && Date.now() > fin) { coupe = true; break; }
     let st = null; try { st = fs.statSync(path.join(cwd, n)); } catch { /* deleted */ }
     if (st ? st.mtimeMs > depuisMs + 500 : commits.has(n)) res.push(st ? n : `${n} (${T().supprime})`);
   }
-  return res.sort();
+  res.sort();
+  if (coupe) res.push('…');
+  return res;
 }
 
 // Joins items up to about `max` characters, then "+N more".
@@ -459,9 +493,19 @@ export function cheminsAbsents(texte, cwd) {
   return [...new Set(res)].slice(0, 5);
 }
 
+// Title shown on screen: "title:" line, else the "# " heading, else the first heading that is not a
+// section of the format ("## Goal"...), else the first line of text, else the file name.
+const SECTION_FORMAT = /^(objectif|goal|o[uù] on en est|where (we are|things stand)|o[uù] lire quoi|where to read what|v[ée]rifi|verified|d[ée]cisions?|en attente|waiting|prochaine [ée]tape|next step|pi[èe]ges?|pitfalls?|fichiers touch|files touched|contexte?|context)\b/i;
 export function titreRelais(texte, nom) {
-  const m = String(texte).match(/^(?:titre|title):\s*(.+)$/m) || String(texte).match(/^#\s+(.+)$/m);
-  return (m ? m[1] : nom).trim().slice(0, 100);
+  const s = String(texte);
+  const t = s.match(/^(?:titre|title):\s*(.+)$/m);
+  if (t && t[1].trim()) return t[1].trim().slice(0, 100);
+  const lignes = s.replace(/^---\r?\n[\s\S]*?\r?\n---[ \t]*(\r?\n|$)/, '').split(/\r?\n/);
+  const nu = (l) => l.replace(/^\s*(#{1,6}\s+|[-*+>]\s+)/, '').replace(/\*\*|__|`|\s+#+\s*$|\s+\*$/g, '').trim();
+  const titres = lignes.filter((l) => /^#{1,6}\s+\S/.test(l));
+  const l = titres.find((x) => /^#\s/.test(x)) || titres.find((x) => !SECTION_FORMAT.test(nu(x)))
+    || lignes.find((x) => !/^\s*#/.test(x) && /\p{L}{2}/u.test(x));
+  return ((l && nu(l)) || nom).replace(/\s+/g, ' ').trim().slice(0, 100);
 }
 
 export function compterARanger() {
@@ -486,4 +530,19 @@ export function noterDemande(e) {
     ...meta, sid, cle: cleProjet(e), cwd: e.cwd, demandeLe: Date.now(), averti: false,
     memDir, headMemDemande: memDir ? gitHead(memDir, 2000) : null,
   });
+}
+
+// After the FIRST measured answer of a session reloaded from a relay: the tally (tokens re-read before the
+// relay, now, freed per action). Shown once, then forgotten. null = nothing to show (yet).
+// Run by the Stop hook (controle.mjs), in v1 and v2.
+export function bilanReprise(e) {
+  const f = path.join(dossierRelais(), '.etat', `bilan_${idSid(e.session_id)}.json`);
+  if (!fs.existsSync(f)) return null;
+  const { avant } = JSON.parse(fs.readFileSync(f, 'utf8'));
+  const maintenant = dernierContexte(e.transcript_path);
+  if (!maintenant) return null; // no measured answer yet: try again at the next one
+  fs.unlinkSync(f);
+  if (!(avant > maintenant)) return null;
+  const libere = avant - maintenant;
+  return T().bilan(k(avant), k(maintenant), k(libere), Math.round((libere / avant) * 100));
 }

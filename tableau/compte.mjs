@@ -8,6 +8,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { tr } from './langue.mjs';
+import { programme } from './gestion.mjs';
 
 const DUREE_CACHE = 60e3;
 let cache = null; // { quand, compte }
@@ -47,7 +48,10 @@ export async function compte(forcer = false) {
   const r = await authStatus();
   let c = { connecte: false, raison: '' };
   if (r.err && !r.stdout) {
-    c.raison = tr(r.err.code === 'ENOENT' ? { fr: 'Claude Code est introuvable sur ce PC (commande « claude »).', en: 'Claude Code was not found on this PC ("claude" command).' }
+    // Not installed: no such program (ENOENT), or, on Windows where the fallback goes through cmd.exe, an exit code
+    // with nothing on PATH. The page then shows how to install Claude Code instead of the sign-in steps only.
+    c.introuvable = r.err.code === 'ENOENT' || !programme('claude');
+    c.raison = tr(c.introuvable ? { fr: 'Claude Code est introuvable sur ce PC (commande « claude »).', en: 'Claude Code was not found on this PC ("claude" command).' }
       : { fr: 'La commande « claude auth status » a échoué.', en: 'The "claude auth status" command failed.' });
   } else {
     let s = null;

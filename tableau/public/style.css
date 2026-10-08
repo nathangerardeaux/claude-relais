@@ -194,6 +194,24 @@ code, .cmd { font-family: Consolas, "Cascadia Mono", monospace; font-size: 12.5p
 .etapes li + li { margin-top: 6px; }
 .avertissement { border-left: 3px solid var(--alerte); padding: 8px 12px; background: var(--surface-2); border-radius: 0 8px 8px 0; color: var(--texte-2); margin-top: 14px; }
 
+.avertissement p { margin: 0 0 8px; }
+.avertissement.fort { border-left-width: 4px; border-left-color: var(--critique); margin: 0 0 16px; }
+.avertissement.fort p { color: var(--texte); }
+.avertissement.succes { border-left-color: var(--bon); margin: 0 0 12px; }
+.avertissement.succes .actions { margin-top: 6px; }
+.skill .attention { margin: 0 0 10px; }
+.demarrer { margin-bottom: 18px; }
+.demarrer summary { cursor: pointer; font-weight: 650; }
+.demarrer ul { list-style: none; margin: 10px 0 0; padding: 0; display: grid; gap: 8px; }
+.demarrer li { display: grid; grid-template-columns: 22px 1fr; gap: 6px; align-items: start; }
+.demarrer .pt { font-weight: 700; text-align: center; }
+.demarrer .pt.bon { color: var(--bon); }
+.demarrer .pt.rouge { color: var(--critique); }
+.demarrer .pt.orange { color: var(--alerte); }
+.demarrer li p { margin: 0; color: var(--texte-2); }
+.demarrer .notes { margin-top: 12px; }
+.demarrer .notes p { margin: 6px 0 0; }
+
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--surface-2); border: 1px solid var(--bord); padding: 10px 14px; border-radius: 8px; max-width: 420px; box-shadow: 0 6px 24px rgb(0 0 0 / 0.3); z-index: 20; }
 .toast.erreur { border-color: var(--critique); }
 

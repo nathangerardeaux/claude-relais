@@ -1,0 +1,12 @@
+{
+  "note": "Scene changes of the RelaisOutils video (seconds). Each value is the instant the transition curtain covers the screen and the next scene starts; read by src/v3 and by outils/musique.mjs --v3 (sound effects). Matched to narration/texte-v3.json.",
+  "duree": 62,
+  "appli": 6.2,
+  "repart": 12.6,
+  "regles": 18.0,
+  "clear": 24.0,
+  "avocat": 30.4,
+  "skills": 37.6,
+  "images": 44.2,
+  "iris": 51.8
+}

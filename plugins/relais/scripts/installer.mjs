@@ -1,17 +1,16 @@
-// Fallback installer: copies the plugin into ~/.claude/skills/relais/, where Claude Code loads it by
+// Fallback installer: copies the plugin into <CLAUDE_CONFIG_DIR or ~/.claude>/skills/relais/, where Claude Code loads it by
 // itself (relais@skills-dir). Only needed when the normal marketplace install is refused, e.g. when the
 // plugin sits on an external or network drive (Claude Code rejects "network-shaped" locations).
 // Do NOT combine with a marketplace install of the same plugin: the hooks would run twice.
 // Usage: node installer.mjs [--update]
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { langue } from './commun.mjs';
+import { langue, dossierClaude } from './commun.mjs';
 
 const FR = langue() === 'fr';
 const source = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
-const cible = path.join(os.homedir(), '.claude', 'skills', 'relais');
+const cible = path.join(dossierClaude(), 'skills', 'relais');
 const maj = process.argv.includes('--update') || process.argv.includes('--maj');
 
 if (fs.existsSync(cible) && !maj) {

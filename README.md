@@ -14,11 +14,32 @@ https://github.com/user-attachments/assets/10456c8c-69d7-4cb5-b3ef-fd7815e6c9b3
 
 *One-minute video (French voice-over): the problem, the relay, the savings. [Download it](docs/relais.mp4).*
 
+https://github.com/user-attachments/assets/9057d2d0-0b03-4a59-b9e1-e00b9e9c2815
+
+*The rest of the toolbox in one minute (French voice-over): the app, the rules registry, the devil's advocate, the skills and the images. [Download it](docs/outils.mp4).*
+
 ---
 
 ## Install
 
 Pick **one** of the two ways. Both install the same plugins; the app adds a dashboard on top.
+
+### Requirements
+
+| | Needed for |
+|---|---|
+| [Claude Code](https://docs.claude.com/en/docs/claude-code), recent version, signed in (tested with 2.1.291) | everything |
+| **Node.js 18 or newer** on the PATH (`node --version`) | the plugins: their hooks are small Node scripts |
+| Windows 10/11 x64 | the Relais app, and the guided setup of the `images` plugin |
+| NVIDIA graphics card (6 GB VRAM advised), about 15 GB free | the free engine of `images` only (otherwise: Codex with a paid ChatGPT Plus or Pro plan) |
+
+The plugins `relais` and `avocat` also contain macOS and Linux code paths, but they have only been
+tested on Windows so far. Feedback welcome.
+
+> [!WARNING]
+> **Without Node.js 18+, the plugins install fine but do nothing**, with no error message: their hooks
+> are Node scripts. Check with `node --version` in a terminal; if it is missing or older, install the
+> LTS version from [nodejs.org](https://nodejs.org), then reopen your terminal and Claude Code.
 
 ### A. The Relais app (Windows): dashboard + one-click plugins
 
@@ -29,7 +50,9 @@ Pick **one** of the two ways. Both install the same plugins; the app adds a dash
 3. Open **Relais**. If Claude Code is not signed in on this PC, the app tells you to run
    `claude auth login` first.
 4. In the **Skills** tab, click **Install** on `relais` (and on `avocat` or `images` if you want them).
-5. **Restart Claude Code.** Plugins only act in sessions opened after they were installed.
+5. **Close and reopen Claude Code** (every open window or terminal session). Plugins only act in
+   sessions opened after they were installed. For avocat, then type `/avocat on`; for images, type
+   `/images:configurer`.
 
 The app checks GitHub for updates (10 s after start, then every 6 hours) and **asks** before
 downloading or installing anything.
@@ -44,22 +67,11 @@ In Claude Code:
 ```
 
 Optional extras from the same marketplace: `/plugin install avocat@claude-relais` and
-`/plugin install images@claude-relais`. Then **restart Claude Code** and check with
-`claude plugin list`.
+`/plugin install images@claude-relais`. Then **close and reopen Claude Code** (plugins only act in
+sessions opened after the install) and check with `claude plugin list`.
 
 The same commands work from a terminal: `claude plugin marketplace add nathangerardeaux/claude-relais`,
 then `claude plugin install relais@claude-relais`.
-
-### Requirements
-
-| | Needed for |
-|---|---|
-| [Claude Code](https://docs.claude.com/en/docs/claude-code), recent version, signed in (tested with 2.1.291) | everything |
-| **Node.js 18 or newer** on the PATH (`node --version`) | the plugins: their hooks are small Node scripts |
-| Windows 10/11 x64 | the Relais app, and the guided setup of the `images` plugin |
-
-The plugins `relais` and `avocat` also contain macOS and Linux code paths, but they have only been
-tested on Windows so far. Feedback welcome.
 
 > **Install each plugin only once.** The app's Install button copies the plugin into
 > `~/.claude/skills/` (it shows up as `relais@skills-dir`); the marketplace installs it as
@@ -184,7 +196,7 @@ account name and plan. French or English, following the system language.
 
 | Part | Network | Reads | Writes |
 |---|---|---|---|
-| relais, avocat (scripts) | **none** (only local `git` calls) | the end of your Claude Code log | `~/.claude/relais/`, `~/.claude/avocat/` |
+| relais, avocat (scripts) | **none** (only local `git` calls) | the end of your Claude Code log | `~/.claude/relais/`, `~/.claude/avocat/` (under `$CLAUDE_CONFIG_DIR` when set) |
 | avocat (the checking agent) | it may use web search, like any Claude agent | your files, read-only | nothing |
 | Dashboard / app | listens on **127.0.0.1 only**; outgoing only for app updates (GitHub) and buttons you click (installs, one design file) | your logs, read-only; **never a login token** | a local index (`tableau/.cache/`, with short message excerpts), the registry, settings |
 | "Rules" chat | sends the registry to Claude through `claude -p`, no tools | the registry | only the cards you apply |
@@ -243,14 +255,14 @@ more but hands over more often.
 Each suite runs in a temporary folder, never in your real `~/.claude`:
 
 ```
-node plugins/relais/scripts/tester.mjs                 # 145 tests
+node plugins/relais/scripts/tester.mjs                 # 165 tests
 node plugins/avocat/scripts/tester.mjs                 # 17 tests
 node plugins/images/scripts/tester.mjs                 # 74 tests
 node plugins/images/scripts/tester-installation.mjs    # 106 tests
-node tableau/tester.mjs                                # 162 tests
+node tableau/tester.mjs                                # 190 tests
 ```
 
-The video is made with Remotion: source in [video/](video/).
+The videos are made with Remotion: source in [video/](video/).
 
 License: GPL-3.0-or-later (see [LICENSE](LICENSE)). Copyright (C) 2026 nathangerardeaux.
 Versions published before this change (relais 2.1.0 and earlier) remain available under the MIT license.

@@ -14,6 +14,7 @@ const PROJET = path.join(HOME, 'mon-projet');
 fs.mkdirSync(PROJET);
 const envBase = { ...process.env, USERPROFILE: HOME, HOME, RELAIS_DOSSIER: '', RELAIS_V2: '0' };
 delete envBase.RELAIS_DOSSIER;
+delete envBase.CLAUDE_CONFIG_DIR; // never the real Claude folder, whatever the machine sets
 delete envBase.RELAIS_SEUIL_K;
 delete envBase.RELAIS_SEUIL_FORT_K;
 
@@ -58,6 +59,11 @@ const r5 = lancer('jauge.mjs', 'not json');
 verif('gauge: invalid input, no error', r5.code === 0 && r5.json === null && !r5.stderr);
 const r6 = lancer('jauge.mjs', { session_id: 's4', transcript_path: GROS, cwd: PROJET, prompt: 'go' }, 'en');
 verif('gauge: English messages', /^Relay: this conversation is 680k/.test(r6.json?.systemMessage || '') && /relais gauge/.test(r6.json?.hookSpecificOutput?.additionalContext || ''), r6.json?.systemMessage);
+// A relais folder whose state cannot be written (here .etat is a file) must not silence the gauge.
+const ROD = path.join(HOME, 'lecture-seule');
+fs.mkdirSync(ROD); fs.writeFileSync(path.join(ROD, '.etat'), 'pas un dossier');
+const r6b = lancer('jauge.mjs', { session_id: 's6', transcript_path: GROS, cwd: PROJET, prompt: 'go' }, 'fr', { RELAIS_DOSSIER: ROD });
+verif('gauge: unwritable relais folder, still reminds (no error)', r6b.code === 0 && /680k/.test(r6b.json?.systemMessage || '') && !r6b.stderr, r6b.json?.systemMessage || r6b.stderr);
 
 // ---- Resume ----
 const dirR = path.join(HOME, '.claude', 'relais');
@@ -117,14 +123,15 @@ const r18 = lancer('reprise.mjs', { source: 'clear', cwd: PROJET, session_id: 'v
 verif('resume: announces the size of the cleared conversation (this folder only)', /200k/.test(r18.json?.systemMessage || ''), r18.json?.systemMessage);
 const neuf = path.join(HOME, 'neuf.jsonl');
 fs.writeFileSync(neuf, '');
-const r19 = lancer('bilan.mjs', { session_id: 'v2', transcript_path: neuf });
+// The tally is shown by the Stop hook (controle.mjs), which also does the v2 relay check.
+const r19 = lancer('controle.mjs', { session_id: 'v2', transcript_path: neuf });
 verif('tally: waits until an answer is measured', r19.json === null);
 fs.writeFileSync(neuf, usage(30000) + '\n');
-const r20 = lancer('bilan.mjs', { session_id: 'v2', transcript_path: neuf });
+const r20 = lancer('controle.mjs', { session_id: 'v2', transcript_path: neuf });
 verif('tally: before / now / freed', /avant 200k.*maintenant 30k.*170k.*-85 %/.test(r20.json?.systemMessage || ''), r20.json?.systemMessage);
-const r21 = lancer('bilan.mjs', { session_id: 'v2', transcript_path: neuf });
+const r21 = lancer('controle.mjs', { session_id: 'v2', transcript_path: neuf });
 verif('tally: shown only once', r21.json === null);
-const r22 = lancer('bilan.mjs', { session_id: 'jamais', transcript_path: neuf });
+const r22 = lancer('controle.mjs', { session_id: 'jamais', transcript_path: neuf });
 verif('tally: silent in an ordinary session', r22.code === 0 && r22.json === null);
 
 // ---- Delegation note (SessionStart, once per session) ----
@@ -142,9 +149,12 @@ const d5 = lancer('deleguer.mjs', { session_id: 'd5', cwd: PROJET, source: 'star
 verif('delegation: English note', /^\[relais\] Token saving/.test(ctxD(d5)) && /subagent/.test(ctxD(d5)), ctxD(d5).slice(0, 60));
 const d6 = lancer('deleguer.mjs', 'not json');
 verif('delegation: invalid input, no error', d6.code === 0 && !d6.stderr);
-verif('delegation: short note (~90 tokens, under 600 characters)', ctxD(d1).length < 600 && ctxD(d5).length < 600, `${ctxD(d1).length} / ${ctxD(d5).length} car.`);
-const hk = JSON.parse(fs.readFileSync(path.join(ici, '..', 'hooks', 'hooks.json'), 'utf8')).hooks.SessionStart;
+verif('delegation: short note (~60 tokens, under 260 characters)', ctxD(d1).length < 260 && ctxD(d5).length < 260, `${ctxD(d1).length} / ${ctxD(d5).length} car.`);
+const hooks = JSON.parse(fs.readFileSync(path.join(ici, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
+const hk = hooks.SessionStart;
 verif('delegation: hook wired on startup|clear|compact', hk.some((h) => h.matcher === 'startup|clear|compact' && h.hooks.some((x) => /deleguer\.mjs/.test(x.command))));
+const stops = hooks.Stop.flatMap((h) => h.hooks);
+verif('Stop: ONE hook (tally + relay check in controle.mjs), one node start per turn', stops.length === 1 && /controle\.mjs/.test(stops[0].command) && !fs.existsSync(path.join(ici, 'bilan.mjs')));
 
 console.log(`v1 (RELAIS_V2=0): ${ok} passed, ${ko} failed`);
 if (process.env.RELAIS_V2 === '0') console.log('RELAIS_V2=0 in the environment: v2 suite skipped');
@@ -168,7 +178,7 @@ async function suiteV2() {
   const H = path.join(HOME, 'v2');
   fs.mkdirSync(H);
   const env2 = { ...process.env, USERPROFILE: H, HOME: H, RELAIS_LANG: 'fr' };
-  for (const v of ['RELAIS_DOSSIER', 'RELAIS_SEUIL_K', 'RELAIS_SEUIL_FORT_K', 'RELAIS_V2', 'RELAIS_AUTO', 'RELAIS_ATTENTE_MS', 'RELAIS_TEST_GIT_DELAI_MS']) delete env2[v];
+  for (const v of ['RELAIS_DOSSIER', 'RELAIS_SEUIL_K', 'RELAIS_SEUIL_FORT_K', 'RELAIS_V2', 'RELAIS_AUTO', 'RELAIS_ATTENTE_MS', 'RELAIS_TEST_GIT_DELAI_MS', 'RELAIS_TEST_GIT_PROPRIETAIRE', 'CLAUDE_CONFIG_DIR']) delete env2[v];
   let pire = 0;
   const lire = (out) => { try { return out ? JSON.parse(out) : null; } catch { return 'NOT-JSON'; } };
   const L = (script, entree, plus = {}) => {
@@ -242,11 +252,20 @@ async function suiteV2() {
   }
   const j4 = jauge('g1', PJ, 'continue', 160000);
   verif('v2 auto threshold: same screen message, exact file, registry command, "for this relay" only (8)',
-    /160k/.test(sm(j4)) && /auto_g1\.md/.test(ac(j4)) && /registre\.mjs" ajouter/.test(ac(j4)) && !/a-ranger/.test(ac(j4)) && /Pour ce relais, ne modifie aucun fichier de mémoire/.test(ac(j4))
-    && /n'interdit pas ce que l'utilisateur te demande/.test(ac(j4)) && !/notes durables/.test(ac(j4)), ac(j4).slice(0, 120));
+    /160k/.test(sm(j4)) && /auto_g1\.md/.test(ac(j4)) && /registre\.mjs" ajouter/.test(ac(j4)) && !/a-ranger/.test(ac(j4)) && /Pour ce relais, ne touche ni mémoire, ni CLAUDE\.md, ni doc/.test(ac(j4))
+    && /sauf demande de l'utilisateur/.test(ac(j4)) && !/notes durables/.test(ac(j4)), ac(j4).slice(0, 120));
   verif('v2 auto: no repeated reminder (thresholds unchanged)', jauge('g1', PJ, 'encore', 170000).json === null);
   const j6 = jauge('g2', PJ, 'go', 160000, { RELAIS_LANG: 'en' });
-  verif('v2 auto: English note', /relais v2/.test(ac(j6)) && /For this relay, do not modify any memory file/.test(ac(j6)));
+  verif('v2 auto: English note', /relais v2/.test(ac(j6)) && /For this relay, touch no memory, CLAUDE\.md or docs/.test(ac(j6)));
+  // The skill is not loaded in auto mode: the note itself gives the format the Stop check requires.
+  for (const [lg, r] of [['fr', j4], ['en', j6]]) {
+    const titres = [...ac(r).matchAll(/[«"] ?(#{1,2} [^»"]+?) ?[»"]/g)].map((m) => m[1]);
+    const relaisSelonNote = titres.map((x) => `${x.replace('<sujet>', 'Sujet').replace('<topic>', 'Topic')}\n- x`).join('\n\n');
+    const an = C.analyserRelais(relaisSelonNote);
+    verif(`v2 auto note gives the format: "# <topic>" + the 3 checked sections + limits, compact (${lg})`,
+      titres.length === 4 && /^# /.test(titres[0]) && an.manquantes.length === 0 && /60 (lignes|lines)/.test(ac(r)) && /6[  ,]000/.test(ac(r))
+      && C.titreRelais(relaisSelonNote, 'auto_x.md') === (lg === 'fr' ? 'Sujet' : 'Topic') && ac(r).length < 800, `${ac(r).length} car. ${JSON.stringify(titres)}`);
+  }
 
   // ---- Normal resume + a-ranger.md + tally ----
   const PN = proj('normal');
@@ -275,6 +294,27 @@ async function suiteV2() {
   const b4 = reprise('b42', PB4);
   verif('v2 B4: relay written 40 min before /clear is pointed to, not loaded nor archived',
     !/CORPS_Vieux/.test(ac(b4)) && /non rechargé/.test(sm(b4)) && /auto_b41\.md/.test(ac(b4)) && /archivable/.test(ac(b4)) && existe('auto_b41.md'), sm(b4));
+  verif('v2 tally only after a REAL reload: none prepared for a relay pointed to', !existe('.etat/bilan_b42.json'));
+
+  // ---- Relay corrected by hand before /clear (README §6): still reloaded, with its size and time ----
+  const PMain = proj('main');
+  demande('hm1', PMain);
+  const pMain = auto('hm1', BON('Main'), 5 * 60e3);
+  stop('hm1', 160000, PMain);
+  fs.appendFileSync(pMain, '- CORRIGE_A_LA_MAIN\n');
+  fin('hm1', 165000, PMain);
+  const hm = reprise('hm2', PMain);
+  verif('v2 relay edited by hand after the Stop check: reloaded with the correction, metadata kept',
+    /CORPS_Main/.test(ac(hm)) && /CORRIGE_A_LA_MAIN/.test(ac(hm)) && !/Métadonnées du relais absentes/.test(ac(hm)) && /165k/.test(sm(hm)), sm(hm));
+  const hmS = L('controle.mjs', { session_id: 'hm2', transcript_path: tr(PMain, 'hm2', 30000), cwd: PMain });
+  verif('v2 Stop hook shows the tally after the first answer of the reloaded session', /avant 165k.*maintenant 30k/.test(sm(hmS)), sm(hmS));
+  // A file OLDER than what the Stop check recorded is not the same relay: no trust in its metadata.
+  demande('hm3', PMain);
+  const pAncien = auto('hm3', BON('Ancien'));
+  stop('hm3', 160000, PMain);
+  const tAncien = (Date.now() - 10 * 60e3) / 1000; fs.utimesSync(pAncien, tAncien, tAncien);
+  fin('hm3', 165000, PMain);
+  verif('v2 relay file older than the recorded one: metadata not trusted', /Métadonnées du relais absentes/.test(ac(reprise('hm4', PMain))));
 
   // ---- Two parallel sessions in the same project ----
   const PP = proj('paralleles');
@@ -336,7 +376,13 @@ async function suiteV2() {
   auto('h1', '## Prochaine étape\nCORPS_SansTete\n\n## Vérifié\n- rien\n\n## En attente du feu vert\n- rien\n');
   stop('h1', 160000, PH); fin('h1', 165000, PH);
   const h = reprise('h2', PH);
-  verif('v2 relay without header (no cwd:, no title): reloaded all the same', /CORPS_SansTete/.test(ac(h)) && /auto_h1\.md/.test(sm(h)), sm(h));
+  verif('v2 relay without header (no cwd:, no title): reloaded all the same, titled by its first line of text', /CORPS_SansTete/.test(ac(h)) && /« CORPS_SansTete »/.test(sm(h)), sm(h));
+  const titre = (x) => C.titreRelais(x, 'auto_x.md');
+  verif('v2 title: title:, then "# ", then any heading not a format section, then the first line of text, else the file name',
+    titre('---\ntitle: Synchro PC\ncwd: x\n---\n## Objectif\nY') === 'Synchro PC' && titre('## Objectif\nZ\n\n# Menu mobile\n') === 'Menu mobile'
+    && titre('## Menu **cassé** ##\n## Objectif\nY') === 'Menu cassé' && titre("## Objectif\nRendre l'audit fiable\n\n## Prochaine étape\nX") === "Rendre l'audit fiable"
+    && titre('---\ncwd: x\n---\n\n- **Fait** : bidule') === 'Fait : bidule' && titre('') === 'auto_x.md' && titre('## Vérifié / pas vérifié *\n---\n') === 'auto_x.md'
+    && titre(`# ${'t'.repeat(300)}`).length === 100);
   auto('v1fmt', '---\ntitle: ancien\ncwd: x\n---\n## Next\nDo X.\n');
   const v1s = stop('v1fmt', 160000, PH);
   verif('v2 Stop: a relay file written without any relay request is recorded silently, never blocked (1)', v1s.json === null && !!meta('v1fmt')?.mtimeVu);
@@ -570,6 +616,76 @@ async function suiteV2() {
   const offJ = L('jauge.mjs', { session_id: 'off3', transcript_path: tr(PK, 'off3', 90000), cwd: PK, prompt: '/relais' }, { RELAIS_V2: '0' });
   verif('v2 switch RELAIS_V2=0: no check, no closing record, v1 /relais note',
     off.json === null && !meta('off1') && !existe('.etat/ferme_off2.json') && !/auto_/.test(ac(offJ)) && /90k/.test(ac(offJ)));
+  // ---- CLAUDE_CONFIG_DIR: relays, states and memory under the configured folder, as the dashboard reads them ----
+  const CFG = path.join(H, 'config-claude');
+  const PCfg = path.join(H, 'projet-config');
+  fs.mkdirSync(PCfg, { recursive: true });
+  const trCfg = path.join(CFG, 'projects', slug(PCfg), 'cfg1.jsonl');
+  fs.mkdirSync(path.dirname(trCfg), { recursive: true });
+  fs.writeFileSync(trCfg, usage(160000) + '\n');
+  const jc = L('jauge.mjs', { session_id: 'cfg1', transcript_path: trCfg, cwd: PCfg, prompt: 'go' }, { CLAUDE_CONFIG_DIR: CFG });
+  verif('v2 CLAUDE_CONFIG_DIR: relay file and states under <CLAUDE_CONFIG_DIR>/relais, not ~/.claude',
+    ac(jc).includes(C.barres(path.join(CFG, 'relais', 'auto_cfg1.md'))) && fs.existsSync(path.join(CFG, 'relais', '.etat', 'taille_cfg1.json'))
+    && !fs.existsSync(path.join(D, '.etat', 'taille_cfg1.json')), ac(jc).slice(0, 200));
+  const memCfg = path.join(CFG, 'projects', slug(PCfg), 'memory');
+  fs.mkdirSync(memCfg);
+  process.env.CLAUDE_CONFIG_DIR = CFG;
+  const trouve = C.dossierMemoire(PCfg, null);
+  delete process.env.CLAUDE_CONFIG_DIR;
+  verif('v2 CLAUDE_CONFIG_DIR: memory folder found from the cwd under <CLAUDE_CONFIG_DIR>/projects', egal(trouve, memCfg), trouve);
+
+  // ---- Unwritable relais folder (v2 auto mode writes several states): the gauge still reminds ----
+  const ROD2 = path.join(H, 'lecture-seule');
+  fs.mkdirSync(ROD2); fs.writeFileSync(path.join(ROD2, '.etat'), 'pas un dossier');
+  const jr = jauge('ro1', PJ, 'go', 160000, { RELAIS_DOSSIER: ROD2 });
+  verif('v2 unwritable relais folder: reminder and note still given, no error', /160k/.test(sm(jr)) && /auto_ro1\.md/.test(ac(jr)) && !jr.stderr, sm(jr) || jr.stderr);
+
+  // ---- Repository owned by "someone else" (exFAT drive, other account): safe.directory, carefully ----
+  const PO = proj('proprietaire');
+  depot(PO); commit(PO, 'init');
+  fs.mkdirSync(path.join(PO, 'sous'));
+  const refuse = spawnSync('git', ['-C', PO, 'rev-parse', 'HEAD'], { encoding: 'utf8', env: { ...env2, GIT_TEST_ASSUME_DIFFERENT_OWNER: '1' } });
+  process.env.RELAIS_TEST_GIT_PROPRIETAIRE = '1';
+  const headRacine = C.gitHead(PO, 3000);
+  const headSous = C.gitHead(path.join(PO, 'sous'), 3000);
+  const listeRacine = C.fichiersDepuis(PO, null, 0, Date.now() + 5000);
+  delete process.env.RELAIS_TEST_GIT_PROPRIETAIRE;
+  verif('v2 foreign owner: the folder that IS the repository top is trusted on the command line (git alone refuses it)',
+    refuse.status !== 0 && /dubious ownership/.test(refuse.stderr) && C.estHash(headRacine) && Array.isArray(listeRacine) && listeRacine.includes('README.md'), refuse.stderr.slice(0, 80));
+  const opt = (d) => C.optionsProprietaire(d).join(' ');
+  verif('v2 foreign owner: never a parent repository found by walking up (CVE-2022-24765), a drive root or the temp folder',
+    headSous === null && opt(path.join(PO, 'sous')) === '' && opt(path.parse(PO).root) === '' && opt(os.tmpdir()) === ''
+    && opt(PO) === `-c safe.directory=${C.barres(path.resolve(PO))}` && opt(H) === '');
+  verif('v2 fichiersDepuis: one git call lists tracked + untracked; a folder outside git = null',
+    C.racineGit(ROD2) !== null || C.fichiersDepuis(ROD2, null, 0, Date.now() + 5000) === null);
+
+  // ---- Daily housekeeping (dated marker) + 30-day purge of old relays ----
+  const vieillir = (p, jours) => { const t = (Date.now() - jours * 86400e3) / 1000; fs.utimesSync(p, t, t); };
+  const ecrireVieux = (rel, jours, contenu = 'x') => { const p = path.join(D, rel); fs.writeFileSync(p, contenu); vieillir(p, jours); return p; };
+  const marque = path.join(D, '.etat', 'menage.json');
+  const preparerMenage = () => {
+    ecrireVieux('.etat/taille_vieux.json', 8, '{}');
+    ecrireVieux('.etat/registre-vu.json', 8, '{"dossiers":{}}');
+    ecrireVieux('auto_tresvieux.md', 31, BON('TresVieux'));
+    ecrireVieux('ancien.repris.md', 31);
+    ecrireVieux('auto_recent.md', 2, BON('Recent'));
+    ecrireVieux('recent.repris.md', 29);
+    ecrireVieux('registre.json', 40, '{"version":1,"entrees":[]}');
+    ecrireVieux('a-ranger.md', 40, '- idée\n');
+    ecrireVieux('2026-01-01_10h00_v1.md', 40, '---\ntitle: v1\ncwd: x\n---\n');
+  };
+  preparerMenage();
+  fs.writeFileSync(marque, JSON.stringify({ jour: new Date().toISOString().slice(0, 10) }));
+  reprise('men1', PV, 'startup');
+  verif('v2 housekeeping: at most once a day (marker of today = nothing touched)', existe('.etat/taille_vieux.json') && existe('auto_tresvieux.md') && existe('ancien.repris.md'));
+  fs.writeFileSync(marque, JSON.stringify({ jour: '2000-01-01' }));
+  reprise('men2', PV, 'startup');
+  verif('v2 housekeeping: states > 7 days and relays > 30 days (.repris.md, auto_*.md) deleted',
+    !existe('.etat/taille_vieux.json') && !existe('auto_tresvieux.md') && !existe('ancien.repris.md'));
+  verif('v2 housekeeping: never a recent relay, the registry, its snapshot, a-ranger.md or a v1 relay; marker of today written',
+    existe('auto_recent.md') && existe('recent.repris.md') && existe('registre.json') && existe('.etat/registre-vu.json') && existe('a-ranger.md')
+    && existe('2026-01-01_10h00_v1.md') && JSON.parse(fs.readFileSync(marque, 'utf8')).jour === new Date().toISOString().slice(0, 10));
+
   const inval = ['controle.mjs', 'fin.mjs', 'reprise.mjs'].map((sc) => L(sc, 'not json'));
   verif('v2 invalid input: no error, no output', inval.every((r) => r.code === 0 && r.json === null && !r.stderr));
   verif('v2 every hook well under the 10 s timeout', pire < 9500, `slowest ${pire} ms`);

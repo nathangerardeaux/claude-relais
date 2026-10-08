@@ -1,5 +1,5 @@
 // Registry of what Claude learned: rules, pitfalls and their solutions, global or per project.
-// One JSON file in the relais folder (<home>/.claude/relais/registre.json): it lives on disk, so neither
+// One JSON file in the relais folder (<CLAUDE_CONFIG_DIR or ~/.claude>/relais/registre.json): it lives on disk, so neither
 // /clear nor compaction nor a new session loses it. Active entries are given back to Claude at every
 // session start (memoire.mjs); the dashboard (tableau, "Memory" tab) shows them, turns them on or off,
 // edits and deletes them. Same file format as tableau/memoire.mjs.
@@ -13,9 +13,8 @@
 // "projet" = the git root of the current folder (or the folder itself). 100% local, no network.
 import fs from 'node:fs';
 import path from 'node:path';
-import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { dossierRelais, normCwd, lireJSON, ecrireJSON, barres } from './commun.mjs';
+import { dossierRelais, normCwd, lireJSON, ecrireJSON, barres, git } from './commun.mjs';
 
 export const TYPES = ['regle', 'piege', 'solution'];
 export const LIMITES = { texte: 300, probleme: 800, solution: 800, sujet: 30 };
@@ -107,12 +106,10 @@ export const pourDossier = (reg, dossier, { tout = false } = {}) => reg.entrees.
 // Project root used for "portee": "projet": the git root of the folder, else the folder itself.
 // (git is only asked for its top level: no working-tree content is read.)
 export function racineProjet(dossier) {
-  try {
-    const r = spawnSync('git', ['-c', `safe.directory=${barres(dossier)}`, 'rev-parse', '--show-toplevel'], { cwd: dossier, encoding: 'utf8', timeout: 3000 });
-    const t = (r.stdout || '').trim();
-    if (r.status === 0 && t) return path.resolve(t);
-  } catch { /* not a repository */ }
-  return path.resolve(dossier);
+  // Hardened git of commun.mjs: neutralised config, and safe.directory only for a folder that is itself
+  // the top of its repository (never a parent repository found by walking up).
+  const t = (git(dossier, ['rev-parse', '--show-toplevel']) || '').trim();
+  return t ? path.resolve(t) : path.resolve(dossier);
 }
 
 // ---- Coverage: is a relay line already said by an instruction file Claude really loaded, or by the registry?
@@ -191,7 +188,8 @@ async function cli(args) {
     const liste = base.filter((e) => !sujet || e.sujet === sujet);
     if (!liste.length) return console.log('Aucune entrée.');
     for (const e of liste) {
-      console.log(`- ${resume(e)}\n  portée : ${e.portee === 'global' ? 'global' : barres(e.portee)}`);
+      // The author is shown here, not in the session-start note (a plain field anyone writing the file can set).
+      console.log(`- ${resume(e)}\n  portée : ${e.portee === 'global' ? 'global' : barres(e.portee)} ; auteur : ${e.origine === 'utilisateur' ? 'utilisateur' : 'Claude'}`);
       if (e.probleme) console.log(`  problème : ${e.probleme}`);
       if (e.solution) console.log(`  solution : ${e.solution}`);
     }

@@ -219,6 +219,8 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
       }
       if (req.method === 'GET' && p === '/api/vue') return envoyer(res, 200, index.vue());
       if (req.method === 'GET' && p === '/api/skills') return envoyer(res, 200, catalogue());
+      // Node.js of the user's PATH (the plugins' hooks need it); ?forcer=1 skips the few-minutes cache.
+      if (req.method === 'GET' && p === '/api/node') return envoyer(res, 200, await gestion.verifierNode({ forcer: url.searchParams.get('forcer') === '1' }));
       if (req.method === 'GET' && p === '/api/skills/externes') return envoyer(res, 200, skillsExternes(langueSysteme()));
 
       // Memory tab (memoire.mjs): what Claude recorded and which instruction files it loaded.

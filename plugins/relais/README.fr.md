@@ -80,8 +80,8 @@ graph LR
 Elle lit la fin du journal local de la conversation et mesure combien de tokens la dernière réponse a
 dû relire. Sous 150 k : rien. Au-delà : un rappel à l'écran, et une courte note pour Claude, qui vous
 proposera `/relais` au bon moment (à la fin d'une étape, pas au milieu). Un seul rappel par palier
-(150 k, 250 k, puis tous les +100 k), jamais à chaque message. Elle lit un journal de 200 Mo en
-moins de 0,2 seconde.
+(150 k, 250 k, puis tous les +100 k), jamais à chaque message. Elle ne lit que la fin du journal :
+mesuré sur un journal de 505 Mo, 82 à 167 ms.
 
 **2. La commande `/relais`**
 Claude écrit un résumé de 60 lignes maximum dans le fichier propre à la session (`auto_<session>.md`,
@@ -90,6 +90,8 @@ ce qui attend votre feu vert, prochaine étape exacte, pièges. Il n'écrit dans
 qu'avec votre accord explicite dans la conversation (il propose, vous dites ok), **ajout seulement**. Il vous dit
 ensuite de taper `/clear`. Quand le relais est (ré)écrit, un contrôle vérifie la longueur, les sections
 obligatoires et les secrets possibles : Claude est prévenu **une fois**, pendant qu'il peut corriger.
+En mode automatique, Claude n'a pas chargé le skill : la note de la jauge lui donne elle-même le format
+exigé (1re ligne `# <sujet>`, les trois sections contrôlées, 60 lignes et 6 000 caractères au plus).
 
 **3. La reprise automatique (v2 : par session)**
 Après `/clear`, la nouvelle session ne considère **que le relais écrit par la session que vous venez de
@@ -98,13 +100,14 @@ après lui), il est rechargé ; sinon (relais périmé, ou `/clear` longtemps ap
 changement de sujet), il est seulement signalé, et « reprends le relais » le charge. Dans les deux cas,
 une courte note de contrôles faits par du code l'accompagne : lignes supprimées dans la mémoire du
 projet, secret possible, écart de fraîcheur et fichiers modifiés depuis (git), chemin cité introuvable,
-nombre de propositions en attente dans `a-ranger.md`. Le tout tient en 8 000 caractères. Le relais n'est utilisé **qu'une fois** (puis archivé). Les relais des autres sessions
+propositions restées dans l'ancien `a-ranger.md`. Le tout tient en 8 000 caractères. Le relais n'est utilisé **qu'une fois** (puis archivé). Les relais des autres sessions
 (onglet parallèle, ancien relais) sont seulement **signalés**, jamais chargés ni archivés : dites
 « reprends le relais » pour en charger un. Un `/clear` dans une session sans relais ne charge rien.
+Le bilan (section 5) ne s'affiche qu'après un vrai rechargement.
 
 **4. La délégation des longues tâches (depuis la 2.1.0)**
 Au début de chaque session (démarrage, `/clear`, compactage), Claude reçoit **une seule fois** une
-consigne d'environ 90 tokens. Elle dit qu'une tâche longue (plus d'une dizaine de lectures ou d'étapes)
+consigne d'environ 60 tokens (234 caractères). Elle dit qu'une tâche longue (plus d'une dizaine de lectures ou d'étapes)
 qui n'a pas besoin de l'historique part chez un sous-agent moins cher (Sonnet, ou Haiku pour un simple
 relevé), avec une consigne autonome et un résultat court. Les tâches courtes, ce qui dépend de
 l'historique, les questions et ce qui attend votre feu vert restent dans la conversation. Les fichiers
@@ -113,7 +116,8 @@ lus par le sous-agent n'entrent pas dans la conversation : elle reste légère p
 **5. Le registre : ce que Claude a appris (depuis la 2.2.0)**
 Quand Claude résout un problème qui pourrait revenir, ou que tu poses une règle durable, il l'enregistre
 en une commande : la règle à appliquer en une ligne, le problème, la solution, un sujet, et si elle vaut
-partout ou pour ce projet. Le registre est un fichier sur le disque (`~/.claude/relais/registre.json`) :
+partout ou pour ce projet. Le registre est un fichier sur le disque (`~/.claude/relais/registre.json`,
+ou sous `$CLAUDE_CONFIG_DIR` si cette variable est définie) :
 ni `/clear`, ni le compactage, ni une nouvelle session ne le perdent. À chaque début de session, les
 entrées **actives** du dossier courant (celles du projet d'abord, puis les globales) sont redonnées à
 Claude, en 4 500 caractères au plus ; au-delà, les entrées cachées sont comptées par sujet, avec la
@@ -151,8 +155,15 @@ que la conversation dépassait 150 k au moment d'un message (session neuve mesur
 La conversation 3 gagne moins parce qu'elle contient de longues phases de travail autonome sans
 message de l'utilisateur : le relais ne peut se faire qu'au moment où vous écrivez.
 
-Le plugin lui-même coûte environ **230 tokens par session** (dont 90 pour la consigne de délégation),
-et environ 1 000 quand vous lancez `/relais`.
+Ce que le plugin ajoute lui-même au contexte de Claude (mesuré en 2.3.0, en caractères ; tokens estimés
+à ~3,5 caractères par token) :
+
+| Moment | Ajout | En 2.2.0 |
+|---|---|---|
+| Début de session, registre vide | ~850 car. (~240 tokens) : délégation 234 + registre ~620 | ~1 280 car. |
+| Début de session, registre typique (16 règles actives) | ~3 800 car. (~1 100 tokens) | ~4 650 car. |
+| Passage d'un seuil (mode automatique) | ~760 car. (~220 tokens) | ~1 090 car. |
+| `/relais` (note de la jauge + skill) | ~4 250 car. (~1 200 tokens) | ~5 830 car. |
 
 **Délégation des longues tâches**, mesurée avec `claude -p` sur des copies identiques d'une même
 session (Opus en session principale, prix API équivalents, détail dans
@@ -224,6 +235,8 @@ Il apparaîtra comme `relais@skills-dir`. Mise à jour : même commande avec `--
 - Installation de secours : supprimez le dossier `~/.claude/skills/relais/`
 
 Vos relais écrits restent dans `~/.claude/relais/` : supprimez ce dossier si vous n'en voulez plus.
+Si `CLAUDE_CONFIG_DIR` est défini, ces dossiers sont sous lui au lieu de `~/.claude` (comme pour le
+tableau).
 
 ---
 
@@ -242,7 +255,7 @@ Avec `RELAIS_AUTO=0`, vous avez de simples rappels et vous passez le relais vous
 1. tapez `/relais` ;
 2. Claude écrit le résumé et vous confirme : « Relais écrit : … Tapez /clear » ;
 3. tapez `/clear` ;
-4. la session repart avec le message « Relais repris : … », et Claude enchaîne sur la prochaine étape.
+4. la session repart avec le message « Relais repris : … », et Claude propose la prochaine étape.
 
 **Le bilan (depuis la 1.3.0)** : à la reprise, relais rappelle combien l'ancienne conversation relisait,
 puis, après la première réponse de la nouvelle session, affiche une seule fois :
@@ -261,8 +274,9 @@ un changement de sujet), pas au milieu d'une modification.
 
 ## 6. Le fichier de relais
 
-Emplacement : `~/.claude/relais/` (sous Windows : `%USERPROFILE%\.claude\relais\`), un fichier par
-session : `auto_<session>.md`. L'exemple ci-dessous est au format v1 ; la v2 ajoute les sections que le
+Emplacement : `~/.claude/relais/` (sous Windows : `%USERPROFILE%\.claude\relais\` ; sous
+`$CLAUDE_CONFIG_DIR` s'il est défini), un fichier par session : `auto_<session>.md`. L'exemple
+ci-dessous est au format v1 ; la v2 commence par `# <sujet>`, sans en-tête, et ajoute les sections que le
 contrôle exige (titres en français ou en anglais) : **Vérifié / pas vérifié**, **En attente du feu
 vert**, **Prochaine étape**, plus **Où lire quoi** (fichier et section exacts par sujet). Voir
 `skills/relais/SKILL.md`.
@@ -298,10 +312,16 @@ Construire le site puis le déployer.
   notent eux-mêmes le vrai dossier, la session, l'heure, la taille du contexte et les HEAD git (projet
   et mémoire) dans `.etat/`. La ligne `cwd:` ne sert plus qu'aux relais au format v1, qui sont signalés
   (moins de 72 h après `/clear`, 12 h dans un nouvel onglet).
-- `a-ranger.md` : propositions durables écrites en mode automatique (Claude ne touche alors jamais la
-  mémoire). Conservé, jamais archivé ; rangé dans la mémoire seulement avec votre accord.
-- Après usage, un relais est renommé en `.repris.md` : vous gardez l'historique de vos relais.
-- C'est un fichier texte : vous pouvez le relire ou le corriger avant de taper `/clear`.
+- Les connaissances durables vont dans le registre (section 2, point 5), plus dans `a-ranger.md` : celui
+  des versions d'avant la 2.2.0 est seulement compté tant que vous ne l'avez pas vidé.
+- Après usage, un relais est renommé en `.repris.md` : vous gardez l'historique de vos relais. Une fois
+  par jour, le ménage supprime les `.repris.md` et `auto_*.md` de plus de 30 jours (jamais un relais
+  récent, le registre ni `a-ranger.md`).
+- C'est un fichier texte : vous pouvez le relire ou le corriger avant de taper `/clear`. Depuis la
+  2.3.0, le relais corrigé est rechargé quand même (avec la taille et l'heure notées quand Claude l'a
+  écrit).
+- Titre affiché : la ligne `title:`, sinon le titre `# `, sinon le premier titre qui n'est pas une
+  section du format, sinon la première ligne de texte.
 
 ---
 
@@ -309,7 +329,8 @@ Construire le site puis le déployer.
 
 Depuis la 1.2.0, le relais est **automatique** : à chaque palier, Claude termine la demande en cours, puis écrit (ou met à jour) le relais lui-même, dans un seul fichier par conversation (`auto_<session>.md`). Tu n'as plus qu'à taper `/clear` quand tu veux. En mode automatique, Claude n'écrit dans aucun fichier de mémoire : les connaissances durables vont dans le registre (depuis la 2.2.0 ; le `a-ranger.md` des versions précédentes reste compté tant que tu ne l'as pas vidé).
 
-Sept variables d'environnement facultatives :
+Le dossier des relais suit `CLAUDE_CONFIG_DIR` s'il est défini (sinon `~/.claude`). Sept variables
+d'environnement facultatives :
 
 | Variable | Défaut | Rôle |
 |---|---|---|
@@ -363,17 +384,23 @@ Pour voir votre consommation réelle en dollars : l'outil
 
 - **Aucun accès réseau.** Aucun des scripts n'ouvre de connexion ni n'envoie quoi que ce soit.
 - **Ce qui est lu** : la fin du journal de conversation que Claude Code tient déjà sur votre disque
-  (`~/.claude/projects/…`), uniquement pour y lire le compteur de tokens de la dernière réponse ; et,
+  (`~/.claude/projects/…`, ou sous `$CLAUDE_CONFIG_DIR`), uniquement pour y lire le compteur de tokens de la dernière réponse ; et,
   en lecture seule avec un délai de 3 s, `git` dans le dossier du projet et dans son dossier de mémoire
   (HEAD, fichiers modifiés, lignes supprimées). Ces appels neutralisent toute option de configuration
   qui ferait exécuter un programme par un dépôt piégé (fsmonitor, filtres, diff externe, pager, hooks…)
-  et ne font jamais convertir la copie de travail par git. Les chemins cités dans un relais ne sont
+  et ne font jamais convertir la copie de travail par git. Un dépôt dont le propriétaire n'est pas
+  reconnu (disque exFAT, autre compte) n'est accepté, en ligne de commande seulement (`safe.directory`),
+  que si le dossier ouvert EST la racine du dépôt : jamais un dépôt parent trouvé en remontant, une
+  racine de disque ni le dossier temporaire. Les chemins cités dans un relais ne sont
   vérifiés que s'ils sont locaux (jamais `\\serveur\partage`, ni URL).
-- **Ce qui est écrit** : les fichiers de relais dans `~/.claude/relais/`, et de petits fichiers d'état
-  dans `~/.claude/relais/.etat/` (effacés au bout de 7 jours). Rien d'autre : le plugin **n'écrit
+- **Ce qui est écrit** : les fichiers de relais dans `~/.claude/relais/` (effacés au bout de 30 jours),
+  le registre, et de petits fichiers d'état dans `~/.claude/relais/.etat/` (effacés au bout de 7 jours ;
+  ménage une fois par jour). Rien d'autre : le plugin **n'écrit
   jamais dans votre projet ni dans sa mémoire**, et n'annule jamais rien (ses contrôles avertissent).
-- **Ce qui est ajouté au contexte de Claude** : une note d'une ligne quand un seuil est franchi, et le
-  contenu d'un relais quand vous le reprenez.
+- **Ce qui est ajouté au contexte de Claude** : au début de chaque session, la consigne de délégation
+  (234 caractères) et les règles actives du registre (~620 caractères s'il est vide, 4 500 au plus) ;
+  une note d'environ 760 caractères quand un seuil est franchi ; un relais avec ses contrôles (8 000
+  caractères au plus) quand vous le reprenez. Détail : section 3.
 - Un relais contient des informations sur votre projet (chemins, décisions). Il reste sur votre
   machine. Claude a pour consigne de n'y mettre **aucun secret** (mot de passe, jeton, clé), mais
   relisez-le si votre projet est sensible.
@@ -416,7 +443,7 @@ Le plugin est installé deux fois (marketplace et secours). Gardez-en un seul.
 
 **Le relais n'est pas rechargé après /clear.**
 La v2 ne recharge que `auto_<id de la session fermée>.md`. Vérifiez qu'il existe dans
-`~/.claude/relais/` (déjà servi : suffixe `.repris.md`). Les autres relais sont seulement signalés :
+`~/.claude/relais/` (ou sous `$CLAUDE_CONFIG_DIR` ; déjà servi : suffixe `.repris.md`). Les autres relais sont seulement signalés :
 dites « reprends le relais ». Si deux sessions du même dossier font `/clear` à quelques secondes
 d'écart, rien n'est chargé (ambigu), volontairement.
 
@@ -442,11 +469,17 @@ d'écart, rien n'est chargé (ambigu), volontairement.
 node scripts/tester.mjs
 ```
 
-145 tests dans un dossier temporaire avec de faux dépôts git (jamais votre vrai `~/.claude`) : les 35
-tests v1 (lancés avec `RELAIS_V2=0`), puis la v2 : reprise normale, deux sessions parallèles, `/clear`
-de changement de sujet, course SessionEnd/SessionStart dans les deux ordres, relais sans en-tête, trop
-long (contrôle Stop et budget de 8 000 caractères), relais périmé avec fichiers git listés, lignes
-supprimées dans la mémoire, `a-ranger.md`, secret signalé sans masquage, chemin absent, dépôt git piégé, chemin UNC jamais sondé, `cd` en cours de session, git lent, `/relais` qui
-reçoit son fichier exact. `RELAIS_V2=0 node scripts/tester.mjs` ne lance que la suite v1. La suite du registre (37 tests : enregistrement, secrets refusés, note de début de session bornée, fichiers réellement chargés, lignes déjà dites) tourne à la fin, ou seule : `node scripts/tester-registre.mjs`.
+165 tests dans un dossier temporaire avec de faux dépôts git (jamais votre vrai `~/.claude`) : les 37
+tests v1 (lancés avec `RELAIS_V2=0`), puis 89 tests v2 : reprise normale, deux sessions parallèles, `/clear`
+de changement de sujet, course SessionEnd/SessionStart dans les deux ordres, relais sans en-tête et
+titre, relais corrigé à la main avant `/clear`, trop long (contrôle Stop et budget de 8 000 caractères),
+format donné par la note du mode automatique, relais périmé avec fichiers git listés, lignes supprimées
+dans la mémoire, secret signalé sans masquage, chemin absent, dépôt git piégé, chemin UNC jamais sondé,
+dépôt d'un autre propriétaire (`safe.directory` limité à la racine ouverte), `cd` en cours de session,
+git lent, `CLAUDE_CONFIG_DIR`, dossier relais non inscriptible, ménage quotidien et purge à 30 jours,
+`/relais` qui reçoit son fichier exact. La suite du registre (39 tests : enregistrement, secrets refusés,
+note de début de session bornée, fichiers réellement chargés, lignes déjà dites) tourne à la fin, ou
+seule : `node scripts/tester-registre.mjs`. `RELAIS_V2=0 node scripts/tester.mjs` lance la suite v1 et
+celle du registre (76 tests), sans la suite v2.
 
 Licence : GPL-3.0 ou version ultérieure (voir `LICENSE`). Copyright (C) 2026 nathangerardeaux.

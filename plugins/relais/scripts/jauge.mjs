@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import {
   SEUIL_AVERTIR, SEUIL_INSISTER, RAPPEL_TOUS_LES, AUTO, V2, dossierRelais, lireStdin, dernierContexte, noterTaille, k, sortieJSON, T,
-  fichierAuto, fichierARanger, barres, noterDemande,
+  fichierAuto, barres, noterDemande,
 } from './commun.mjs';
 import { fileURLToPath } from 'node:url';
 
@@ -27,17 +27,19 @@ try {
   const e = await lireStdin();
   const prompt = String(e.prompt || '').trim();
   const ctx = dernierContexte(e.transcript_path);
-  noterTaille(e.session_id, e.cwd, ctx); // remembered for the "tokens freed" tally after /clear
+  // Remembered for the "tokens freed" tally after /clear. A relais folder that cannot be written must
+  // never silence the gauge: every write below is optional.
+  try { noterTaille(e.session_id, e.cwd, ctx); } catch { /* read-only */ }
 
   if (V2 && demandeRelais(prompt)) {
-    noterDemande(e);
+    try { noterDemande(e); } catch { /* read-only */ }
     const t = T();
     sortieJSON({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit',
       additionalContext: t.noteRelais2(ctx ? k(ctx) : '', barres(fichierAuto(e.session_id)), COMMANDE_REGISTRE) } });
     process.exit(0);
   }
   if (!V2 && /^\/?relais\b/i.test(prompt)) { // v1: the relay is being written right now: give Claude the real size
-    if (ctx) sortieJSON({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: T().noteTailleRelais(k(ctx)) } });
+    if (ctx) sortieJSON({ hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: T().noteTailleRelais(k(ctx), barres(dossierRelais())) } });
     process.exit(0);
   }
   if (ctx < SEUIL_AVERTIR) process.exit(0);
@@ -52,13 +54,13 @@ try {
     || (fort && etat.dernier < SEUIL_INSISTER)
     || ctx >= etat.dernier + RAPPEL_TOUS_LES;
   if (!doitRappeler) process.exit(0);
-  fs.writeFileSync(etatF, JSON.stringify({ dernier: ctx, le: new Date().toISOString() }));
+  try { fs.writeFileSync(etatF, JSON.stringify({ dernier: ctx, le: new Date().toISOString() })); } catch { /* read-only: reminds again */ }
 
   const t = T();
   if (AUTO) {
     // One file per conversation, rewritten at each threshold: never two relays of different ages.
     const fichier = path.join(dossierRelais(), `auto_${sid}.md`).replace(/\\/g, '/');
-    if (V2) noterDemande(e);
+    if (V2) { try { noterDemande(e); } catch { /* read-only */ } }
     sortieJSON({
       systemMessage: t.auto(k(ctx)),
       hookSpecificOutput: { hookEventName: 'UserPromptSubmit',

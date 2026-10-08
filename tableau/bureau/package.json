@@ -1,7 +1,7 @@
 {
   "name": "relais-bureau",
   "productName": "Relais",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "description": "Tableau relais : application de bureau (fenêtre dédiée autour du serveur local du tableau).",
   "author": "Nathan Gerardeaux",
   "license": "GPL-3.0-or-later",

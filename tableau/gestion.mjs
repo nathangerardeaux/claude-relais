@@ -51,6 +51,46 @@ function executer(nom, args, { cwd, timeout = 180000, env } = {}) {
   });
 }
 
+// ------------------------------------------------------------------ Node.js on the user's PATH
+// The plugins' hooks are Node scripts started by Claude Code with the `node` of the user's PATH (NOT the
+// Node embedded in the desktop app). `node --version`, no shell, short timeout; result cached a few minutes.
+export const NODE_MINIMUM = 18;
+const DUREE_CACHE_NODE = 3 * 60e3;
+
+// "v20.11.0\n" -> { version: '20.11.0', majeur: 20 }, or null when it is not a Node version.
+export function analyserVersionNode(sortie) {
+  const m = /^v?(\d+)\.(\d+)\.(\d+)/.exec(String(sortie || '').trim());
+  return m ? { version: `${m[1]}.${m[2]}.${m[3]}`, majeur: Number(m[1]) } : null;
+}
+// -> { etat: 'ok' | 'ancien' | 'absent', version: string, minimum }
+export function etatNode(sortie) {
+  const v = analyserVersionNode(sortie);
+  if (!v) return { etat: 'absent', version: '', minimum: NODE_MINIMUM };
+  return { etat: v.majeur >= NODE_MINIMUM ? 'ok' : 'ancien', version: v.version, minimum: NODE_MINIMUM };
+}
+// Default probe: `node --version` (node.exe / node.com / node.cmd on Windows, PATH only). -> text printed, '' = absent.
+async function sondeNode() {
+  const r = await executer('node', ['--version'], { timeout: 5000 });
+  return r.ok ? r.sortie : '';
+}
+let cacheNode = null; // { quand, etat }
+let enCoursNode = null;
+export function oublierNode() { cacheNode = null; enCoursNode = null; }
+// `sonde`: async () => text printed by `node --version` ('' / throws = not found); replaced in the tests.
+export async function verifierNode({ forcer = false, sonde = sondeNode, maintenant = Date.now } = {}) {
+  if (!forcer && cacheNode && maintenant() - cacheNode.quand < DUREE_CACHE_NODE) return cacheNode.etat;
+  if (enCoursNode && !forcer) return enCoursNode;
+  const p = (async () => {
+    let sortie = '';
+    try { sortie = await sonde(); } catch { /* absent */ }
+    const etat = etatNode(sortie);
+    cacheNode = { quand: maintenant(), etat };
+    return etat;
+  })();
+  enCoursNode = p;
+  try { return await p; } finally { if (enCoursNode === p) enCoursNode = null; }
+}
+
 // `claude ... --json`: the whole output (pretty-printed lists), else its last line holding a JSON object
 // (results printed after progress messages). A lone line such as `"x@1.0"` is valid JSON too: ignored.
 async function claudeJson(args, options) {

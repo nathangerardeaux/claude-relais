@@ -81,8 +81,8 @@ graph LR
 It reads the end of the local conversation log and measures how many tokens the last response had to
 re-read. Below 150k: nothing. Above: an on-screen reminder, plus a short note for Claude, which will
 suggest `/relais` at the right time (at the end of a step, not in the middle). One reminder per
-threshold (150k, 250k, then every +100k), never on every message. It reads a 200 MB log in under
-0.2 seconds.
+threshold (150k, 250k, then every +100k), never on every message. It only reads the end of the log:
+measured on a 505 MB log, 82 to 167 ms.
 
 **2. The `/relais` command**
 Claude writes a summary of 60 lines max into this session's own file (`auto_<session>.md`, path given
@@ -90,7 +90,9 @@ by the plugin): goal, where things stand, where to read what, verified / not ver
 what waits for your go-ahead, the exact next step, pitfalls. It writes in the project's memory only if
 you explicitly agree in the conversation (it suggests, you say ok), **additions only**. It then tells you to
 type `/clear`. When the relay is (re)written, a check runs: too long, a required section missing or a
-possible secret, and Claude is told **once** while it can still fix it.
+possible secret, and Claude is told **once** while it can still fix it. In auto mode Claude has not
+loaded the skill: the gauge note itself gives the required format (first line `# <topic>`, the three
+checked sections, 60 lines and 6,000 characters max).
 
 **3. Automatic resume (v2: per session)**
 After `/clear`, the new session only considers **the relay written by the session you just cleared**.
@@ -98,14 +100,14 @@ If it is fresh (written less than 30 min before `/clear` and less than 20k token
 it), it is reloaded; otherwise (stale relay, or `/clear` long after: most likely a change of topic) it is
 only pointed to, and "resume the relay" loads it. Either way a short note of checks made by code comes
 with it: lines deleted in the project memory, possible secret, freshness gap and files changed since
-(git), cited path not found, number of items waiting in `a-ranger.md`. Everything fits in 8,000
+(git), cited path not found, items left in the old `a-ranger.md`. Everything fits in 8,000
 characters. The relay is used **only
 once** (then archived). Relays of other sessions (parallel tab, old relay) are only **announced**,
 never loaded nor archived: say "resume the relay" to load one. A `/clear` in a session that wrote no
-relay loads nothing.
+relay loads nothing. The tally (section 5) only shows after a real reload.
 
 **4. Delegating long tasks (since 2.1.0)**
-At the start of each session (startup, `/clear`, compaction), Claude gets a note of about 90 tokens,
+At the start of each session (startup, `/clear`, compaction), Claude gets a note of about 60 tokens (219 characters),
 **once**. It says that a long task (more than about ten reads or steps) that does not need the history
 goes to a cheaper subagent (Sonnet, or Haiku for a plain inventory), with a self-contained brief and a
 short result. Short tasks, anything that depends on the history, questions and whatever awaits your
@@ -115,7 +117,8 @@ light for what comes next.
 **5. The registry: what Claude learned (since 2.2.0)**
 When Claude solves a problem that could come back, or you set a lasting rule, it records it in one
 command: a one-line rule to apply, the problem, the solution, a topic, and whether it is global or for
-this project. The registry is a file on disk (`~/.claude/relais/registre.json`): `/clear`, compaction
+this project. The registry is a file on disk (`~/.claude/relais/registre.json`, or under
+`$CLAUDE_CONFIG_DIR` when that variable is set): `/clear`, compaction
 and new sessions never lose it. At every session start the **active** entries for the current folder
 (project ones first, then global ones) are given back to Claude, within 4,500 characters; beyond that,
 the hidden entries are counted per topic, with the command that shows them. Nothing of it is copied
@@ -151,8 +154,15 @@ above 150k when a message was sent (measured fresh session: ~41k):
 Conversation 3 saves less because it contains long stretches of autonomous work with no message from
 the user: a relay can only happen when you write.
 
-The plugin itself costs about **230 tokens per session** (90 of them for the delegation note), and
-about 1,000 when you run `/relais`.
+What the plugin itself adds to Claude's context (measured on 2.3.0, in characters; tokens estimated at
+~3.5 characters per token):
+
+| When | Added | In 2.2.0 |
+|---|---|---|
+| Session start, empty registry | ~780 chars (~220 tokens): delegation 219 + registry ~560 | ~1,170 chars |
+| Session start, typical registry (16 active rules) | ~3,750 chars (~1,070 tokens) | ~4,460 chars |
+| Threshold crossed (auto mode) | ~730 chars (~210 tokens) | ~1,020 chars |
+| `/relais` (gauge note + skill) | ~4,250 chars (~1,200 tokens) | ~5,810 chars |
 
 **Delegating long tasks**, measured with `claude -p` on identical copies of one session (Opus as the
 main model, API-equivalent prices, details in [docs/delegation.md](../../docs/delegation.md)):
@@ -221,6 +231,8 @@ It will show up as `relais@skills-dir`. To update: same command with `--update`.
 - Fallback install: delete the `~/.claude/skills/relais/` folder
 
 Your written relays stay in `~/.claude/relais/`: delete that folder if you no longer want them.
+If `CLAUDE_CONFIG_DIR` is set, these folders live under it instead of `~/.claude` (as for the
+dashboard).
 
 ---
 
@@ -238,7 +250,7 @@ With `RELAIS_AUTO=0` you get simple reminders instead, and you hand over yoursel
 1. type `/relais`;
 2. Claude writes the summary and confirms: "Relay written: … Type /clear";
 3. type `/clear`;
-4. the session restarts with "Relay resumed: …", and Claude carries on with the next step.
+4. the session restarts with "Relay resumed: …", and Claude suggests the next step.
 
 **The tally (since 1.3.0)**: on resume, relais recalls how much the previous conversation re-read, then,
 after the first answer of the new session, shows once:
@@ -258,8 +270,9 @@ no relay needed.
 
 ## 6. The relay file
 
-Location: `~/.claude/relais/` (on Windows: `%USERPROFILE%\.claude\relais\`), one file per session:
-`auto_<session>.md`. The format below is the v1 one; v2 adds three sections, the ones the check requires
+Location: `~/.claude/relais/` (on Windows: `%USERPROFILE%\.claude\relais\`; under
+`$CLAUDE_CONFIG_DIR` when set), one file per session: `auto_<session>.md`. The format below is the v1
+one; v2 starts with `# <topic>`, no header, and adds three sections, the ones the check requires
 (headings in French or English): **Verified / not verified**, **Waiting for go-ahead**, **Next step**,
 plus **Where to read what** (exact file and section per subject). See `skills/relais/SKILL.md`.
 
@@ -293,10 +306,15 @@ Build the site, then deploy it.
 - v2 never trusts what Claude writes for the folder or the session: the scripts record the real
   folder, session, time, context size and git HEADs (project and memory) in `.etat/`. The `cwd:` line
   only serves v1-style relays, which are announced (less than 72 h after `/clear`, 12 h in a new tab).
-- `a-ranger.md`: durable proposals written in auto mode (Claude never touches the memory then). Kept,
-  never archived; filed into the memory only with your agreement.
-- After use a relay is renamed `.repris.md`: you keep a history of your relays.
-- It is a plain text file: you can read or correct it before typing `/clear`.
+- Durable knowledge goes to the registry (section 2, item 5), no longer to `a-ranger.md`: one left by
+  a version before 2.2.0 is only counted until you empty it.
+- After use a relay is renamed `.repris.md`: you keep a history of your relays. Once a day, the
+  housekeeping deletes `.repris.md` and `auto_*.md` files older than 30 days (never a recent relay, the
+  registry or `a-ranger.md`).
+- It is a plain text file: you can read or correct it before typing `/clear`. Since 2.3.0 the corrected
+  relay is still reloaded (with the size and time recorded when Claude wrote it).
+- Title shown: the `title:` line, else the `# ` heading, else the first heading that is not a section
+  of the format, else the first line of text.
 
 ---
 
@@ -304,7 +322,8 @@ Build the site, then deploy it.
 
 Since 1.2.0 the relay is **automatic**: at each threshold, Claude finishes the current request, then writes (or refreshes) the relay itself in a single file per conversation (`auto_<session>.md`). You only type `/clear` whenever you want. In auto mode Claude writes no memory file: durable knowledge goes to the registry (since 2.2.0; `a-ranger.md` from older versions is still counted until you empty it).
 
-Seven optional environment variables:
+The relais folder follows `CLAUDE_CONFIG_DIR` when it is set (else `~/.claude`). Seven optional
+environment variables:
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -357,16 +376,21 @@ To see your real usage in dollars: [ccusage](https://github.com/ryoppippi/ccusag
 
 - **No network access.** None of the scripts opens a connection or sends anything.
 - **What is read**: the end of the conversation log Claude Code already keeps on your disk
-  (`~/.claude/projects/…`), only to read the token counter of the last response; and, read-only with a
+  (`~/.claude/projects/…`, or under `$CLAUDE_CONFIG_DIR`), only to read the token counter of the last response; and, read-only with a
   3 s timeout, `git` in the project folder and in its memory folder (HEAD, changed files, deleted lines).
   These calls neutralise every configuration option a trapped repository could use to run a program
-  (fsmonitor, filters, external diff, pager, hooks...) and never make git convert the working tree. Paths
+  (fsmonitor, filters, external diff, pager, hooks...) and never make git convert the working tree. A
+  repository whose owner is not recognised (exFAT drive, other account) is accepted, on the command line
+  only (`safe.directory`), only if the opened folder IS the top of the repository: never a parent
+  repository found by walking up, a drive root or the temp folder. Paths
   cited in a relay are only checked if they are local (never `\\server\share`, nor URLs).
-- **What is written**: relay files in `~/.claude/relais/`, and tiny state files in
-  `~/.claude/relais/.etat/` (deleted after 7 days). Nothing else: the plugin **never writes in your
+- **What is written**: relay files in `~/.claude/relais/` (deleted after 30 days), the registry, and
+  tiny state files in `~/.claude/relais/.etat/` (deleted after 7 days; housekeeping once a day). Nothing else: the plugin **never writes in your
   project nor in its memory**, and never undoes anything (its checks only warn).
-- **What is added to Claude's context**: a one-line note when a threshold is crossed, and the content
-  of a relay when you resume it.
+- **What is added to Claude's context**: at every session start, the delegation note (219 characters)
+  and the active registry rules (~560 characters when empty, 4,500 at most); a note of about 730
+  characters when a threshold is crossed; a relay with its checks (8,000 characters at most) when you
+  resume it. Details: section 3.
 - A relay contains information about your project (paths, decisions). It stays on your machine.
   Claude is instructed to put **no secrets** in it (password, token, key), but re-read it if your
   project is sensitive.
@@ -409,7 +433,7 @@ The plugin is installed twice (marketplace and fallback). Keep only one.
 
 **The relay is not reloaded after /clear.**
 v2 reloads only `auto_<id of the cleared session>.md`. Check that it exists in `~/.claude/relais/`
-(already used: `.repris.md` suffix). Other relays are only announced: say "resume the relay". If two
+(or under `$CLAUDE_CONFIG_DIR`; already used: `.repris.md` suffix). Other relays are only announced: say "resume the relay". If two
 sessions of the same folder are cleared within a few seconds, nothing is loaded (ambiguous), on purpose.
 
 **Debugging the hooks**: run `claude --debug`, or `/debug` during a session.
@@ -434,11 +458,16 @@ sessions of the same folder are cleared within a few seconds, nothing is loaded 
 node scripts/tester.mjs
 ```
 
-145 tests in a temporary folder with throw-away git repositories (never your real `~/.claude`): the 35
-v1 tests (run with `RELAIS_V2=0`), then v2: normal resume, two parallel sessions, `/clear` to change
-topic, SessionEnd/SessionStart race in both orders, relay without header, too long (Stop check and
-8,000-character budget), stale relay with git file list, deleted memory lines, `a-ranger.md`, secret
-without masking, missing path, `/relais` gets its exact file, trapped git repository, UNC path never probed, `cd` during the session, slow git. `RELAIS_V2=0 node scripts/tester.mjs`
-runs the v1 suite only. The registry suite (37 tests: recording, secrets refused, bounded session-start note, files really loaded, lines already said) runs at the end, or alone: `node scripts/tester-registre.mjs`.
+165 tests in a temporary folder with throw-away git repositories (never your real `~/.claude`): the 37
+v1 tests (run with `RELAIS_V2=0`), then 89 v2 tests: normal resume, two parallel sessions, `/clear` to
+change topic, SessionEnd/SessionStart race in both orders, relay without header and its title, relay
+corrected by hand before `/clear`, too long (Stop check and 8,000-character budget), format given by the
+auto-mode note, stale relay with git file list, deleted memory lines, secret without masking, missing
+path, trapped git repository, UNC path never probed, repository of another owner (`safe.directory`
+limited to the opened top folder), `cd` during the session, slow git, `CLAUDE_CONFIG_DIR`, unwritable
+relais folder, daily housekeeping and 30-day purge, `/relais` gets its exact file. The registry suite
+(39 tests: recording, secrets refused, bounded session-start note, files really loaded, lines already
+said) runs at the end, or alone: `node scripts/tester-registre.mjs`. `RELAIS_V2=0 node scripts/tester.mjs`
+runs the v1 and registry suites (76 tests), without the v2 suite.
 
 License: GPL-3.0-or-later (see `LICENSE`). Copyright (C) 2026 nathangerardeaux.

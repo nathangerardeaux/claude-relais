@@ -482,28 +482,78 @@ function detailMessage(id, tour, ouvert, choisir) {
 }
 
 // ------------------------------------------------------------------ skills
+const installations = new Map(); // plugin name -> 'install' | 'maj': the "relaunch Claude Code" message stays until closed
+const CLE_DEMARRER = 'relais.demarrer.replie';
+const URL_NODE = 'https://nodejs.org/'; // the app refuses external navigation: shown as copyable text
+const ligneCopiable = (texte) => h('div', { class: 'cmd' }, h('code', {}, texte),
+  h('button', { class: 'bouton', onclick: () => navigator.clipboard.writeText(texte).then(() => toast(t('commun.copie'))) }, t('commun.copier')));
+const detailNode = (n) => (n.etat === 'absent' ? t('node.absent') : t('node.ancien', { version: n.version }));
+async function reverifierNode(ev) {
+  ev.currentTarget.disabled = true;
+  const n = await api('/api/node?forcer=1').catch(() => null);
+  if (n?.etat === 'ok') toast(t('node.detecte', { version: n.version })); else toast(t('node.toujours'), true);
+  await afficherSkills();
+}
+const bandeauNode = (n) => h('div', { class: 'avertissement fort', role: 'alert' },
+  h('p', {}, h('b', {}, t('node.titre'))), h('p', {}, detailNode(n)), h('p', {}, t('node.installer')), ligneCopiable(URL_NODE),
+  h('div', { class: 'actions', style: { 'margin-top': '8px' } }, h('button', { class: 'bouton', onclick: reverifierNode }, t('node.reverifier'))));
+
+// "Getting started": the real state of each point (green = fine, red = blocks the plugins, orange = to do).
+function encadreDemarrer({ cpt, node, liste }) {
+  const nodeOk = node?.etat === 'ok';
+  const doubles = liste.filter((p) => p.doublons?.length);
+  const etatPlugin = (p) => t(p.doublons?.length ? 'demarrer.deuxFois' : p.etat === 'absent' ? 'demarrer.nonInstalle' : 'demarrer.installe');
+  const points = [
+    { s: cpt?.connecte ? 'bon' : 'rouge', titre: t('demarrer.claude'), detail: cpt?.connecte ? t('demarrer.claudeCompte', { nom: cpt.nom || cpt.email || t('compte.defaut') }) : (cpt?.raison || '') },
+    { s: nodeOk ? 'bon' : node ? 'rouge' : 'orange', titre: t('demarrer.node'), detail: nodeOk ? t('demarrer.nodeOk', { version: node.version }) : node ? detailNode(node) : '',
+      plus: null }, // the red Node banner below gives the fix
+    { s: doubles.length ? 'rouge' : liste.some((p) => p.etat === 'absent') ? 'orange' : 'bon', titre: t('demarrer.plugins'), detail: liste.map((p) => `${p.nom} : ${etatPlugin(p)}`).join(' \u00b7 ') },
+  ];
+  const rouge = points.some((x) => x.s === 'rouge');
+  let replie = false;
+  try { replie = localStorage.getItem(CLE_DEMARRER) === '1'; } catch { /* storage refused */ }
+  const d = h('details', { class: 'carte demarrer', open: rouge || !replie },
+    h('summary', {}, t('demarrer.titre')),
+    h('ul', {}, points.map((x) => h('li', {}, h('span', { class: `pt ${x.s}`, 'aria-hidden': 'true' }, { bon: '\u2713', rouge: '\u2717', orange: '!' }[x.s]),
+      h('div', {}, h('b', {}, x.titre), x.detail ? h('p', {}, x.detail) : null, x.plus)))),
+    h('div', { class: 'notes' }, h('p', {}, t('demarrer.rappel')), h('p', {}, t('demarrer.ensuite')), bureau ? h('p', { class: 'muet petit' }, t('demarrer.signature')) : null));
+  d.addEventListener('toggle', () => { if (!rouge) try { localStorage.setItem(CLE_DEMARRER, d.open ? '0' : '1'); } catch { /* storage refused */ } });
+  return d;
+}
+
 async function afficherSkills() {
   const page = $('#page-skills');
-  const liste = await api('/api/skills').catch(() => []);
+  const [liste, node, cpt] = await Promise.all([api('/api/skills').catch(() => []), api('/api/node').catch(() => null), api('/api/compte').catch(() => null)]);
+  const nodeMauvais = !!node && node.etat !== 'ok';
   const BADGES = {
     'a-jour': ['bon', t('skills.badgeAJour')], ancienne: ['alerte', t('skills.badgeAncienne')], absent: ['neutre', t('skills.badgeAbsent')], marketplace: ['bon', t('skills.badgeMarketplace')],
   };
   page.replaceChildren(
     h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('skills.titre')),
       h('p', {}, t('skills.intro')))),
+    encadreDemarrer({ cpt, node, liste }),
+    ...(nodeMauvais ? [bandeauNode(node)] : []), // replaceChildren would print "null"
     h('div', { class: 'skills' }, liste.map((p) => {
       const [cls, txt] = BADGES[p.etat] || BADGES.absent;
       return h('div', { class: 'carte skill' },
         h('h2', {}, p.nom, h('span', { class: 'version' }, `v${p.versionDispo}`), h('span', { class: `badge ${cls}` }, txt)),
+        installations.has(p.nom) ? h('div', { class: 'avertissement succes', role: 'status' },
+          h('p', {}, h('b', {}, t(installations.get(p.nom) === 'maj' ? 'skills.apresMaj' : 'skills.apresInstall'))),
+          p.nom === 'avocat' ? h('p', {}, t('skills.apresAvocat')) : p.nom === 'images' ? h('p', {}, t('skills.apresImages')) : null,
+          h('div', { class: 'actions' }, h('button', { class: 'bouton', onclick: () => { installations.delete(p.nom); afficherSkills(); } }, t('commun.fermer')))) : null,
+        p.doublons?.length ? h('div', { class: 'avertissement fort', role: 'alert' }, h('p', {}, h('b', {}, t('skills.doublon'))),
+          h('p', {}, t('skills.doublonRetirer')), p.doublons.map((x) => ligneCopiable(x.commande))) : null,
         h('p', {}, p.description),
+        p.nom === 'images' ? h('p', { class: 'muet petit' }, t('skills.prerequisImages')) : null,
         h('dl', {},
           p.skills.length ? [h('dt', {}, t('skills.commandes')), h('dd', {}, h('div', { class: 'puces' }, p.skills.map((x) => h('span', { class: 'puce', title: x.description }, `/${x.nom}`))))] : null,
           p.agents.length ? [h('dt', {}, t('skills.agents')), h('dd', {}, h('div', { class: 'puces' }, p.agents.map((x) => h('span', { class: 'puce', title: x.description }, x.nom))))] : null,
           p.hooks.length ? [h('dt', {}, t('skills.automatique')), h('dd', {}, p.hooks.map(nomHook).join(', '))] : null,
           p.versionInstallee ? [h('dt', {}, t('skills.installe')), h('dd', {}, `v${p.versionInstallee}`)] : null),
+        nodeMauvais ? h('div', { class: 'attention', style: { 'margin-bottom': '10px' } }, t('skills.nodeCourt')) : null,
         h('div', { class: 'actions' },
           p.etat === 'marketplace' ? h('span', { class: 'muet petit' }, t('skills.parPlugin'))
-            : h('button', { class: `bouton${p.etat === 'a-jour' ? '' : ' principal'}`, onclick: (ev) => installerPlugin(p.nom, ev.currentTarget) },
+            : h('button', { class: `bouton${p.etat === 'a-jour' ? '' : ' principal'}`, onclick: (ev) => installerPlugin(p, ev.currentTarget) },
               p.etat === 'absent' ? t('commun.installer') : p.etat === 'ancienne' ? t('skills.mettreAJour') : t('skills.reinstaller'))),
         h('details', {}, h('summary', {}, t('skills.autreMethode')),
           h('p', { class: 'muet' }, t('skills.autreMethodeAide')),
@@ -730,9 +780,9 @@ async function sectionProfils(projets) {
 
 const HOOKS = ['UserPromptSubmit', 'SessionStart', 'SessionEnd', 'Stop', 'PreToolUse', 'PostToolUse'];
 const nomHook = (k) => (HOOKS.includes(k) ? t(`hook.${k}`) : k);
-async function installerPlugin(nom, bouton) {
+async function installerPlugin(p, bouton) {
   bouton.disabled = true;
-  try { const r = await api('/api/skills/installer', { nom }); toast(r.message); } catch (e) { toast(e.message, true); }
+  try { await api('/api/skills/installer', { nom: p.nom }); installations.set(p.nom, p.etat === 'ancienne' ? 'maj' : 'install'); } catch (e) { toast(e.message, true); }
   await afficherSkills(); rafraichirEtat();
 }
 
@@ -1200,10 +1250,11 @@ async function cycle() { await rafraichirEtat(); await rafraichirConversations()
 
 // ------------------------------------------------------------------ Claude account
 let demarre = false;
-function verrouiller(raison) {
+function verrouiller(raison, introuvable) {
   $('#connexion').hidden = false;
   const r = $('#connexion-raison');
   r.hidden = !raison; r.textContent = raison || '';
+  if (raison !== undefined) $('#connexion-absent').hidden = !introuvable; // Claude Code not installed: how to install it
 }
 function afficherCompte(c) {
   const z = $('#compte');
@@ -1220,7 +1271,7 @@ function afficherCompte(c) {
 async function verifierCompte(forcer) {
   const c = forcer ? await api('/api/compte/verifier', {}).catch(() => null) : await api('/api/compte').catch(() => null);
   if (!c) { verrouiller(t('compte.serveurMuet')); return false; }
-  if (!c.connecte) { $('#compte').hidden = true; verrouiller(c.raison); return false; }
+  if (!c.connecte) { $('#compte').hidden = true; verrouiller(c.raison, c.introuvable === true); return false; }
   $('#connexion').hidden = true;
   afficherCompte(c);
   if (!demarre) {
@@ -1239,5 +1290,8 @@ $('#verifier-compte').addEventListener('click', async (ev) => {
   ev.currentTarget.disabled = false;
   if (!ok) toast(t('compte.toujoursPas'), true);
 });
+const URL_DOC = 'https://docs.claude.com/en/docs/claude-code/setup'; // the app refuses external navigation: copyable text
+$('#url-doc').textContent = URL_DOC;
+$('#copier-doc').addEventListener('click', () => navigator.clipboard.writeText(URL_DOC).then(() => toast(t('commun.copie'))));
 $('#copier-login').addEventListener('click', () => navigator.clipboard.writeText('claude auth login').then(() => toast(t('commun.commandeCopiee'))));
 verifierCompte(false);

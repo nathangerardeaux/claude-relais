@@ -66,18 +66,36 @@ async function repriseV2(e) {
 // A function declaration (hoisted): the main block above runs before any const below is initialised.
 function dormir(ms) { return new Promise((ok) => setTimeout(ok, ms)); }
 
-function menage(dir) {
-  // Quiet housekeeping: states older than 7 days, except the metadata of a relay that still exists.
+// Quiet housekeeping, at most once a day (dated marker): it used to stat every state file on each start.
+// - states older than 7 days, except the metadata of a relay that still exists and the registry snapshot
+//   (rewritten only when the registry changes: deleting it would announce every rule as new again);
+// - archived relays (.repris.md) and session relays (auto_*.md) older than 30 days. Never a recent relay,
+//   never the registry, a-ranger.md or a v1 relay.
+function menage(dir, maintenant = Date.now()) {
+  const marque = path.join(dir, '.etat', 'menage.json');
+  const jour = new Date(maintenant).toISOString().slice(0, 10);
+  if (lireJSON(marque)?.jour === jour) return false;
   try {
     const etat = path.join(dir, '.etat');
     for (const f of fs.readdirSync(etat)) {
+      if (f === 'menage.json' || f === 'registre-vu.json') continue;
       const p = path.join(etat, f);
-      if (Date.now() - fs.statSync(p).mtimeMs <= 7 * 86400e3) continue;
+      if (maintenant - fs.statSync(p).mtimeMs <= 7 * 86400e3) continue;
       const m = f.match(/^meta_([\w-]+)\.json$/);
       if (m && fs.existsSync(path.join(dir, `auto_${m[1]}.md`))) continue;
       fs.unlinkSync(p);
     }
   } catch { /* not important */ }
+  try {
+    for (const f of fs.readdirSync(dir)) {
+      if (!/\.repris\.md$|^auto_[\w-]+\.md$/.test(f)) continue;
+      const p = path.join(dir, f);
+      const st = fs.statSync(p);
+      if (st.isFile() && maintenant - st.mtimeMs > 30 * 86400e3) fs.unlinkSync(p);
+    }
+  } catch { /* not important */ }
+  try { ecrireJSON(marque, { jour }); } catch { /* read-only: try again next time */ }
+  return true;
 }
 
 function listerRelais(dir) {
@@ -147,7 +165,9 @@ function annoncer(items) {
 function injecter(e, r, F, fin, limite) {
   const t = T();
   const meta = r.meta || {};
-  const metaOk = meta.mtimeVu === r.mtime && meta.ctx > 0;
+  // Recorded by the Stop check when Claude wrote it; a later date = corrected by hand before /clear
+  // (README §6): still the same relay, same size and time of writing. An OLDER date = another file.
+  const metaOk = meta.ctx > 0 && Number(meta.mtimeVu) > 0 && r.mtime >= meta.mtimeVu;
   const relaisMs = metaOk && meta.ecritMs ? meta.ecritMs : r.mtime;
   const ecart = metaOk && fin ? fin - meta.ctx : null;
   const tropVieux = Number(F.le) - relaisMs > FRAIS_MS;
@@ -180,13 +200,14 @@ function injecter(e, r, F, fin, limite) {
   const nAR = compterARanger();
   if (nAR) autres.push(t.ctrlARanger(nAR, barres(fichierARanger())));
 
-  if (fin) ecrireJSON(path.join(dossierRelais(), '.etat', `bilan_${idSid(e.session_id)}.json`), { avant: fin });
   const depuis = duree(Date.now() - relaisMs);
   let systemMessage;
   let tete;
   if (frais) {
     // Single use: archive THIS relay only (never another session's).
     try { fs.renameSync(r.p, r.p.replace(/\.md$/, '.repris.md')); } catch { /* already gone */ }
+    // The tally ("before / now / freed") only follows a real reload, as in v1.
+    if (fin) ecrireJSON(path.join(dossierRelais(), '.etat', `bilan_${idSid(e.session_id)}.json`), { avant: fin });
     systemMessage = fin ? t.reprisAvant(r.titre, depuis, k(fin)) : t.repris(r.titre, depuis);
     tete = t.noteRepris2(String(F.sid).slice(0, 8), heure(relaisMs));
   } else {
@@ -261,7 +282,7 @@ function repriseV1(e) {
   for (const c of candidats) {
     try { fs.renameSync(c.p, c.p.replace(/\.md$/, '.repris.md')); } catch { /* already gone */ }
   }
-  // Size of the conversation that was just cleared: bilan.mjs compares it after the first answer.
+  // Size of the conversation that was just cleared: the Stop hook (controle.mjs) compares it after the first answer.
   const avant = derniereTaille(e.cwd, e.session_id);
   if (avant) {
     const sid = String(e.session_id || 'x').replace(/[^\w-]/g, '');

@@ -275,6 +275,7 @@ try {
   verif('account: data locked while signed out', (await get('/api/conversations')).status === 401 && (await post('/api/avocat', { actif: true })).status === 401);
   verif('memoire (api): locked while signed out too (read and write)', (await get('/api/memoire')).status === 401 && (await post('/api/memoire/ajouter', { portee: 'global', texte: 'x' })).status === 401);
   verif('account: page itself still loads (sign-in screen)', (await get('/')).status === 200);
+  verif('node (api): locked while signed out, like the other data routes', (await get('/api/node')).status === 401);
   const lfr = await get('/api/langue');
   verif('langue: /api/langue reachable before sign-in, French here', lfr.status === 200 && (await lfr.json()).langue === 'fr');
   const i18n = await get('/i18n.js');
@@ -451,6 +452,36 @@ try {
   fs.mkdirSync(path.join(CLAUDE, 'plugins'), { recursive: true });
   fs.writeFileSync(path.join(CLAUDE, 'plugins', 'installed_plugins.json'), JSON.stringify({ plugins: { 'relais@claude-relais': [{ version: '1.3.0' }] } }));
   verif('skills: no second copy of a marketplace-installed plugin', (await post('/api/skills/installer', { nom: 'relais' })).status === 400);
+  // ---- Node.js check through the real server: its PATH only holds BIN, where the fake node.cmd goes
+  {
+    const noeud = async (forcer = true) => (await get(`/api/node${forcer ? '?forcer=1' : ''}`)).json();
+    const ecrireNoeud = (v) => fs.writeFileSync(path.join(BIN, 'node.cmd'), `@echo ${v}\r\n`);
+    const n0 = await noeud();
+    verif('node (api): no node on the PATH = absent, minimum 18', n0.etat === 'absent' && n0.version === '' && n0.minimum === 18, JSON.stringify(n0));
+    ecrireNoeud('v16.20.2');
+    const n16 = await noeud();
+    verif('node (api): node 16.20.2 on the PATH = too old, version reported', n16.etat === 'ancien' && n16.version === '16.20.2', JSON.stringify(n16));
+    ecrireNoeud('v20.11.0');
+    const n20cache = await noeud(false);
+    verif('node (api): the answer is cached (no new probe without forcer)', n20cache.etat === 'ancien', JSON.stringify(n20cache));
+    const n20 = await noeud();
+    verif('node (api): node 20.11.0 = ok (forcer=1 probes again)', n20.etat === 'ok' && n20.version === '20.11.0', JSON.stringify(n20));
+    verif('node (api): foreign Host or other site refused', (await brut('/api/node', { Host: 'evil.example' })) === 403 && (await brut('/api/node', { 'Sec-Fetch-Site': 'cross-site' })) === 403);
+    fs.rmSync(path.join(BIN, 'node.cmd'));
+  }
+  // ---- plugin installed twice (app copy + marketplace), from installed_plugins.json
+  {
+    const copie = path.join(CLAUDE, 'skills', 'relais', '.claude-plugin');
+    fs.mkdirSync(copie, { recursive: true });
+    fs.writeFileSync(path.join(copie, 'plugin.json'), JSON.stringify({ name: 'relais', version: '1.0.0' }));
+    const sk = await (await get('/api/skills')).json();
+    const rel = sk.find((x) => x.nom === 'relais');
+    verif('skills (api): app copy + marketplace = doublons with the uninstall command', rel.doublons.length === 1 && rel.doublons[0].id === 'relais@claude-relais'
+      && rel.doublons[0].commande === 'claude plugin uninstall relais@claude-relais', JSON.stringify(rel.doublons));
+    verif('skills (api): a plugin installed one way only has no doublon (avocat = app copy, images = nothing)', sk.find((x) => x.nom === 'avocat').doublons.length === 0 && sk.find((x) => x.nom === 'images').doublons.length === 0);
+    fs.rmSync(path.join(CLAUDE, 'skills', 'relais'), { recursive: true, force: true });
+    verif('skills (api): marketplace only (no app copy) = no doublon', (await (await get('/api/skills')).json()).find((x) => x.nom === 'relais').doublons.length === 0);
+  }
   const e = await (await get('/api/etat')).json();
   verif('server: state reports the advocate as installed and on', e.avocat.actif === true && e.avocat.installe === true);
   // ---- memory tab through the real server (same registry file as the module tests above)
@@ -729,6 +760,60 @@ function texteHtml(html) {
   verif('bureau: accepted requests reach the app', ok4 && JSON.stringify(appels) === '[["demarrage",true],["verifier"]]', JSON.stringify(appels));
   verif('bureau: unknown desktop route = 404', (await p4('/api/bureau/rien', {})).status === 404);
   await s4.fermer();
+}
+
+// ---- Node.js probe (gestion.mjs): injected probe, never the real node of this PC
+{
+  const G = await import('./gestion.mjs');
+  const essai = async (sortie, options = {}) => { G.oublierNode(); return G.verifierNode({ forcer: true, sonde: async () => { if (sortie instanceof Error) throw sortie; return sortie; }, ...options }); };
+  const a = await essai('');
+  verif('node: nothing printed (not on the PATH) = absent', a.etat === 'absent' && a.version === '' && a.minimum === 18, JSON.stringify(a));
+  verif('node: probe failing = absent, no crash', (await essai(new Error('ENOENT'))).etat === 'absent');
+  verif('node: a message that is not a version = absent', (await essai('bash: node: command not found')).etat === 'absent');
+  const v16 = await essai('v16.20.2\n');
+  verif('node: 16.20.2 = too old, version kept', v16.etat === 'ancien' && v16.version === '16.20.2', JSON.stringify(v16));
+  verif('node: 17.9.1 = too old', (await essai('v17.9.1')).etat === 'ancien');
+  const v20 = await essai('v20.11.0\r\n');
+  verif('node: 20.11.0 = ok', v20.etat === 'ok' && v20.version === '20.11.0', JSON.stringify(v20));
+  verif('node: 18.0.0 (the minimum) and 24.1.0 = ok', (await essai('v18.0.0')).etat === 'ok' && (await essai('v24.1.0')).etat === 'ok');
+  // cache: one probe for repeated calls, a new one after a few minutes or with forcer; concurrent calls share a probe
+  let sondes = 0; let horloge = 1000;
+  const sonde = async () => { sondes += 1; return 'v20.0.0'; };
+  G.oublierNode();
+  await G.verifierNode({ sonde, maintenant: () => horloge }); await G.verifierNode({ sonde, maintenant: () => horloge + 60e3 });
+  verif('node: result cached for a few minutes (one probe for two calls a minute apart)', sondes === 1, String(sondes));
+  await G.verifierNode({ sonde, maintenant: () => horloge + 4 * 60e3 });
+  verif('node: probed again after the cache expired', sondes === 2, String(sondes));
+  await G.verifierNode({ sonde, forcer: true, maintenant: () => horloge + 4 * 60e3 });
+  verif('node: forcer skips the cache', sondes === 3, String(sondes));
+  G.oublierNode(); sondes = 0;
+  await Promise.all([G.verifierNode({ sonde }), G.verifierNode({ sonde }), G.verifierNode({ sonde })]);
+  verif('node: simultaneous calls share one probe', sondes === 1, String(sondes));
+  G.oublierNode();
+
+  // Plugin installed twice: simulated list of plugin ids
+  const { doublonsMarketplace: dbl } = await import('./catalogue.mjs');
+  verif('doublon: app copy + marketplace = the marketplace id to uninstall', JSON.stringify(dbl('relais', ['relais@claude-relais', 'avocat@claude-relais'], true)) === '["relais@claude-relais"]');
+  verif('doublon: marketplace only (no app copy) = none', dbl('relais', ['relais@claude-relais'], false).length === 0);
+  verif('doublon: app copy only = none', dbl('relais', ['avocat@claude-relais'], true).length === 0 && dbl('relais', [], true).length === 0);
+  verif('doublon: copy known as <name>@skills-dir in the list, other marketplace = doublon, skills-dir itself ignored',
+    JSON.stringify(dbl('avocat', ['avocat@skills-dir', 'avocat@autre-place'], false)) === '["avocat@autre-place"]' && dbl('avocat', ['avocat@skills-dir'], true).length === 0);
+  verif('doublon: several marketplaces listed, de-duplicated; other plugin names and unsafe ids ignored',
+    JSON.stringify(dbl('images', ['images@a', 'images@a', 'images@b', 'images-x@a', 'images@mauvais id', 'images@x&calc'], true)) === '["images@a","images@b"]');
+  verif('doublon: not a list = none, no crash', dbl('relais', undefined, true).length === 0 && dbl('relais', null, true).length === 0);
+}
+
+// ---- "Claude Code not installed": the account answer says so (the page then shows how to install it)
+{
+  const { compte } = await import('./compte.mjs');
+  const sauve = { chemin: process.env.PATH, faux: process.env.TABLEAU_CLAUDE };
+  delete process.env.TABLEAU_CLAUDE;
+  process.env.PATH = BIN; // fake folder with no `claude` in it
+  let c;
+  try { c = await compte(true); } finally { process.env.PATH = sauve.chemin; if (sauve.faux !== undefined) process.env.TABLEAU_CLAUDE = sauve.faux; }
+  verif('account: no claude command = connecte false, introuvable true, "introuvable" reason', c.connecte === false && c.introuvable === true && /introuvable/.test(c.raison), JSON.stringify(c));
+  verif('account: not-installed flag is also what the page reads (app.js sends c.introuvable to the sign-in screen)', /verrouiller\(c\.raison, c\.introuvable === true\)/.test(fs.readFileSync(path.join(ici, 'public', 'app.js'), 'utf8')));
+  await compte(true); // refresh the cache with the real environment
 }
 
 fs.rmSync(TMP, { recursive: true, force: true });

@@ -37,7 +37,6 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/bilan.mjs\"", "timeout": 10 },
           { "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/scripts/controle.mjs\"", "timeout": 10 }
         ]
       }

@@ -4,6 +4,8 @@
 // Arrangement: pad (bars 1-2), + arpeggio (3-6), + bass, kick, hats (7-20), breakdown (21-23), pad (24-25).
 // Usage: node outils/musique.mjs  ->  public/musique.wav (then converted to mp3, see README).
 //        node outils/musique.mjs --v2  ->  public/musique-v2.wav (56 s, story video, sound effects).
+//        node outils/musique.mjs --v3  ->  public/musique-v3.wav (toolbox video: length and sound effects
+//                                          follow src/v3/temps.json).
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -14,7 +16,10 @@ const BEAT = 60 / BPM;          // 0.5 s
 const BAR = 4 * BEAT;           // 2 s
 // --v2 : 28 bars = 56 s for the story video (public/musique-v2.wav), with sound effects on the cuts.
 const V2 = process.argv.includes('--v2');
-const BARS = V2 ? 28 : 25;
+// --v3 : the toolbox video (src/v3), length and scene changes read from src/v3/temps.json.
+const V3 = process.argv.includes('--v3');
+const T3 = V3 ? JSON.parse(fs.readFileSync(path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'src', 'v3', 'temps.json'), 'utf8')) : null;
+const BARS = V3 ? Math.round(T3.duree / BAR) : V2 ? 28 : 25;
 const DUREE = BARS * BAR;       // 50 s
 const N = Math.round(DUREE * SR);
 const L = new Float32Array(N);
@@ -186,6 +191,34 @@ if (V2) {
   carillon(40.9, [79, 84, 88, 91], 0.07);                     // task done
   whoosh(45.5, 0.9, 0.14);                                    // iris to the ending
   pop(46.7, 700, 180, 0.15);
+} else if (V3) {
+  // same arrangement as v2; effects at the scene changes of src/v3 (Scenes.tsx local times added to temps.json)
+  arpege(1, BARS - 2);
+  basse(3, BARS - 2);
+  rythme(3, BARS - 4);
+  pop(0.3, 600, 160, 0.15);                                           // robot
+  pop(2.85, 800, 200, 0.22); carillon(2.85);                          // toolbox opens
+  for (let i = 0; i < 5; i++) pop(3.0 + i * 0.16, 900 + i * 80, 500, 0.08);  // tools come out
+  for (let i = 0; i < 5; i++) tic(4.95 + i * 0.12, 1600 + i * 150, 0.07);    // tools land in the top bar
+  for (const t of [T3.appli, T3.regles, T3.clear, T3.avocat, T3.skills, T3.images]) whoosh(t - 0.7, 1.3, 0.14); // curtains
+  for (let i = 0; i < 5; i++) tic(T3.appli + 3.6 + i * 0.22, 1400, 0.05);    // conversations
+  pop(T3.repart + 1.8, 500, 120, 0.2);                                // the "relectures" part
+  pop(T3.regles + 1.45, 1200, 90, 0.26);                             // slip
+  pop(T3.regles + 1.8, 260, 60, 0.3);                                 // fall
+  for (let i = 0; i < 8; i++) tic(T3.regles + 3.3 + i * 0.2, 2600, 0.025); // pencil
+  pop(T3.regles + 5.0, 700, 200, 0.2); carillon(T3.regles + 5.0, [72, 76, 79], 0.05); // noted
+  pop(T3.clear + 0.8, 800, 200, 0.18); carillon(T3.clear + 1.7, [76, 83, 88], 0.05); // notebook, idea
+  suce(T3.clear + 3.1, 0.8, 0.05);                                    // jump
+  carillon(T3.clear + 4.1, [84, 88, 91, 96], 0.07);                   // coin
+  pop(T3.avocat + 3.3, 300, 80, 0.25);                                // error found
+  pop(T3.avocat + 5.5, 500, 100, 0.3); carillon(T3.avocat + 5.5, [79, 84, 88], 0.06); // stamp
+  for (const d of [1.5, 1.8, 2.1, 2.4, 3.45, 3.6]) tic(T3.skills + d, 1500, 0.08); // switches
+  carillon(T3.skills + 4.4, [76, 79, 84], 0.05);                      // lighter
+  pop(T3.images + 3.35, 400, 300, 0.1);                                // "hmm"
+  whoosh(T3.images + 4.4, 0.5, 0.08);                                 // erase
+  carillon(T3.images + 6.4, [79, 84, 88, 91], 0.07);                  // done
+  whoosh(T3.iris, 0.9, 0.14);                                         // iris to the ending
+  pop(T3.iris + 0.9, 700, 180, 0.15);
 } else {
   arpege(2, 23);
   basse(6, 23);
@@ -210,7 +243,7 @@ for (let i = 0; i < N; i++) {
   buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, L[i] * k)) * 32767), 44 + i * 4);
   buf.writeInt16LE(Math.round(Math.max(-1, Math.min(1, R[i] * k)) * 32767), 46 + i * 4);
 }
-const sortie = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', V2 ? 'musique-v2.wav' : 'musique.wav');
+const sortie = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', V3 ? 'musique-v3.wav' : V2 ? 'musique-v2.wav' : 'musique.wav');
 fs.mkdirSync(path.dirname(sortie), { recursive: true });
 fs.writeFileSync(sortie, buf);
 console.log(`${sortie} : ${DUREE} s, crête ${crete.toFixed(3)} avant normalisation`);

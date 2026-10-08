@@ -15,12 +15,34 @@ https://github.com/user-attachments/assets/10456c8c-69d7-4cb5-b3ef-fd7815e6c9b3
 
 *Vidéo d'une minute : le problème, le relais, les économies. [La télécharger](docs/relais.mp4).*
 
+https://github.com/user-attachments/assets/9057d2d0-0b03-4a59-b9e1-e00b9e9c2815
+
+*Le reste de la boîte à outils en une minute : l'appli, le registre de règles, l'avocat du diable, les skills et les images. [La télécharger](docs/outils.mp4).*
+
 ---
 
 ## Installation
 
 Choisissez **une** des deux façons. Les deux installent les mêmes plugins ; l'appli ajoute un tableau
 de bord.
+
+### Prérequis
+
+| | Sert à |
+|---|---|
+| [Claude Code](https://docs.claude.com/fr/docs/claude-code), version récente, connecté (testé avec la 2.1.291) | tout |
+| **Node.js 18 ou plus récent** dans le PATH (`node --version`) | les plugins : leurs hooks sont de petits scripts Node |
+| Windows 10/11 x64 | l'appli Relais, et l'installation guidée du plugin `images` |
+| Carte graphique NVIDIA (6 Go de VRAM conseillés), environ 15 Go libres | seulement le moteur gratuit d'`images` (sinon : Codex avec un forfait ChatGPT Plus ou Pro payant) |
+
+Les plugins `relais` et `avocat` ont aussi du code pour macOS et Linux, mais ils n'ont été testés que
+sous Windows pour l'instant. Les retours sont bienvenus.
+
+> [!WARNING]
+> **Sans Node.js 18+, les plugins s'installent mais ne font rien**, sans aucun message d'erreur : leurs
+> hooks sont des scripts Node. Vérifiez avec `node --version` dans un terminal ; s'il est absent ou trop
+> ancien, installez la version LTS depuis [nodejs.org](https://nodejs.org), puis rouvrez le terminal et
+> Claude Code.
 
 ### A. L'appli Relais (Windows) : tableau de bord + plugins en un clic
 
@@ -33,8 +55,9 @@ de bord.
    `claude auth login`.
 4. Dans l'onglet **Skills**, cliquez sur **Installer** pour `relais` (et pour `avocat` ou `images` si
    vous les voulez).
-5. **Redémarrez Claude Code.** Les plugins n'agissent que dans les sessions ouvertes après
-   l'installation.
+5. **Fermez et rouvrez Claude Code** (toutes les fenêtres ou sessions de terminal ouvertes). Les
+   plugins n'agissent que dans les sessions ouvertes après l'installation. Pour avocat, tapez ensuite
+   `/avocat on` ; pour images, tapez `/images:configurer`.
 
 L'appli vérifie les mises à jour sur GitHub (10 s après le démarrage, puis toutes les 6 heures) et
 **demande** avant de télécharger ou d'installer quoi que ce soit.
@@ -49,22 +72,11 @@ Dans Claude Code :
 ```
 
 En option, depuis le même marketplace : `/plugin install avocat@claude-relais` et
-`/plugin install images@claude-relais`. Ensuite **redémarrez Claude Code** et vérifiez avec
-`claude plugin list`.
+`/plugin install images@claude-relais`. Ensuite **fermez et rouvrez Claude Code** (les plugins
+n'agissent que dans les sessions ouvertes après l'installation) et vérifiez avec `claude plugin list`.
 
 Les mêmes commandes marchent dans un terminal : `claude plugin marketplace add nathangerardeaux/claude-relais`,
 puis `claude plugin install relais@claude-relais`.
-
-### Prérequis
-
-| | Sert à |
-|---|---|
-| [Claude Code](https://docs.claude.com/fr/docs/claude-code), version récente, connecté (testé avec la 2.1.291) | tout |
-| **Node.js 18 ou plus récent** dans le PATH (`node --version`) | les plugins : leurs hooks sont de petits scripts Node |
-| Windows 10/11 x64 | l'appli Relais, et l'installation guidée du plugin `images` |
-
-Les plugins `relais` et `avocat` ont aussi du code pour macOS et Linux, mais ils n'ont été testés que
-sous Windows pour l'instant. Les retours sont bienvenus.
 
 > **N'installez chaque plugin qu'une fois.** Le bouton Installer de l'appli copie le plugin dans
 > `~/.claude/skills/` (il apparaît comme `relais@skills-dir`) ; le marketplace l'installe comme
@@ -190,7 +202,7 @@ du compte et le forfait. En français ou en anglais, selon la langue du système
 
 | Partie | Réseau | Lit | Écrit |
 |---|---|---|---|
-| relais, avocat (scripts) | **aucun** (seulement des appels `git` locaux) | la fin de votre journal Claude Code | `~/.claude/relais/`, `~/.claude/avocat/` |
+| relais, avocat (scripts) | **aucun** (seulement des appels `git` locaux) | la fin de votre journal Claude Code | `~/.claude/relais/`, `~/.claude/avocat/` (sous `$CLAUDE_CONFIG_DIR` s'il est défini) |
 | avocat (l'agent vérificateur) | peut faire des recherches web, comme tout agent Claude | vos fichiers, en lecture seule | rien |
 | Tableau / appli | écoute sur **127.0.0.1 seulement** ; sorties seulement pour les mises à jour de l'appli (GitHub) et les boutons que vous cliquez (installations, un fichier de design) | vos journaux, en lecture seule ; **jamais un jeton de connexion** | un index local (`tableau/.cache/`, avec de courts extraits de messages), le registre, les réglages |
 | Chat « règles » | envoie le registre à Claude via `claude -p`, sans outil | le registre | seulement les cartes que vous appliquez |
@@ -250,14 +262,14 @@ Variables d'environnement facultatives, par exemple dans le bloc `env` de `~/.cl
 Chaque suite tourne dans un dossier temporaire, jamais dans votre vrai `~/.claude` :
 
 ```
-node plugins/relais/scripts/tester.mjs                 # 145 tests
+node plugins/relais/scripts/tester.mjs                 # 165 tests
 node plugins/avocat/scripts/tester.mjs                 # 17 tests
 node plugins/images/scripts/tester.mjs                 # 74 tests
 node plugins/images/scripts/tester-installation.mjs    # 106 tests
-node tableau/tester.mjs                                # 162 tests
+node tableau/tester.mjs                                # 190 tests
 ```
 
-La vidéo est faite avec Remotion : source dans [video/](video/).
+Les vidéos sont faites avec Remotion : source dans [video/](video/).
 
 Licence : GPL-3.0 ou version ultérieure (voir [LICENSE](LICENSE)). Copyright (C) 2026 nathangerardeaux.
 Les versions publiées avant ce changement (relais 2.1.0 et antérieures) restent disponibles sous

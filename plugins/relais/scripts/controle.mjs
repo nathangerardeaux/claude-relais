@@ -1,26 +1,34 @@
-// Stop hook (v2): when this session's relay (auto_<session>.md) was (re)written during the turn, the
-// script records its metadata itself (project, real folder, context size, time, git HEAD of the project
-// memory and of the folder) and checks it while Claude still has the context to fix it: too long,
-// required sections missing, possible secret -> Claude is told ONCE, and only for a relay written after a
-// relay request (never when stop_hook_active, never twice per request; an old v1-format file of this
-// session is only recorded, silently). Silent otherwise. Never an error. RELAIS_V2=0: does nothing.
+// Stop hook, the only one (one node start per turn instead of two):
+// 1. v1 and v2: after the first answer of a session reloaded from a relay, the tally (bilanReprise).
+// 2. v2: when this session's relay (auto_<session>.md) was (re)written during the turn, the script records
+// its metadata itself (project, real folder, context size, time, git HEAD of the project memory and of the
+// folder) and checks it while Claude still has the context to fix it: too long, required sections missing,
+// possible secret -> Claude is told ONCE, and only for a relay written after a relay request (never when
+// stop_hook_active, never twice per request; an old v1-format file of this session is only recorded,
+// silently). Silent otherwise. Never an error. RELAIS_V2=0: the tally only.
 import fs from 'node:fs';
 import {
   V2, lireStdin, dernierContexte, sortieJSON, T, idSid, fichierAuto, barres, lireMeta, ecrireMeta,
-  dossierMemoire, gitHead, analyserRelais, cleProjet, estHash, dossierRelais,
+  dossierMemoire, gitHead, analyserRelais, cleProjet, estHash, dossierRelais, bilanReprise,
 } from './commun.mjs';
 import path from 'node:path';
 import { lireRegistre, pourDossier, lignesCouvertes } from './registre.mjs';
 
+const sortie = {};
 try {
-  if (!V2) process.exit(0);
   const e = await lireStdin();
-  if (!e.session_id) process.exit(0);
+  try { const b = bilanReprise(e); if (b) sortie.systemMessage = b; } catch { /* never a visible error */ }
+  if (V2 && e.session_id) controler(e);
+} catch { /* never a visible error */ }
+if (Object.keys(sortie).length) sortieJSON(sortie);
+process.exit(0);
+
+function controler(e) {
   const sid = idSid(e.session_id);
   const f = fichierAuto(sid);
-  let st; try { st = fs.statSync(f); } catch { process.exit(0); }
+  let st; try { st = fs.statSync(f); } catch { return; }
   const meta = lireMeta(sid) || {};
-  if (meta.mtimeVu === st.mtimeMs) process.exit(0); // not rewritten since the last check
+  if (meta.mtimeVu === st.mtimeMs) return; // not rewritten since the last check
 
   const texte = fs.readFileSync(f, 'utf8');
   const t0 = Date.now();
@@ -44,9 +52,8 @@ try {
     ctx: dernierContexte(e.transcript_path) || meta.ctx || 0, memDir, headMem, headCwd,
     averti: meta.averti || avertir,
   });
-  if (avertir) sortieJSON({ decision: 'block', reason: t.blocage(barres(f), pbs.join(' ; ')) });
-} catch { /* never a visible error */ }
-process.exit(0);
+  if (avertir) Object.assign(sortie, { decision: 'block', reason: t.blocage(barres(f), pbs.join(' ; ')) });
+}
 
 // Relay lines already said by what the NEXT session will get anyway: the instruction files this session
 // really loaded at start (InstructionsLoaded, see instructions.mjs: session_start, or included by such a

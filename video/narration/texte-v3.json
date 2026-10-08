@@ -1,0 +1,15 @@
+{
+  "langue": "fr",
+  "note": "Narration of the RelaisOutils video (v3, the whole toolbox). debut = second where the sentence starts; fin = latest second it must be over (next scene). \"dit\" = spelling given to the voice when it mispronounces a word (Chatterbox said \"la pire au lait\" for l'appli, \"plus jeunes\" for plugins, \"YouTube\" for GitHub). Voice: generer.py femme 6 --expressif (exaggeration 1.05, cfg_weight 0.25, temperature 0.85): among the exact takes that fit their slot, the most expressive one is kept (expressivite.py), trimmed just after the last word.",
+  "phrases": [
+    { "id": "p1", "debut": 0.6, "fin": 6.0, "texte": "Tu connais déjà le relais. Voici maintenant toute la boîte à outils." },
+    { "id": "p2", "debut": 6.7, "fin": 12.4, "texte": "D'abord, l'appli Relais : elle compte tes tokens, conversation par conversation.", "dit": "D'abord, l'appli, Relais : elle compte tes tokens, conversation par conversation." },
+    { "id": "p3", "debut": 12.9, "fin": 17.8, "texte": "Tu vois enfin où ils partent : relectures, outils, sous-agents." },
+    { "id": "p4", "debut": 18.3, "fin": 23.8, "texte": "Le registre de règles : chaque piège que Claude rencontre est noté une fois." },
+    { "id": "p5", "debut": 24.4, "fin": 30.2, "texte": "À la session suivante, il s'en souvient. La même erreur n'est plus payée deux fois." },
+    { "id": "p6", "debut": 30.8, "fin": 37.4, "texte": "L'avocat du diable : un second agent essaie de démonter chaque réponse avant qu'elle t'arrive." },
+    { "id": "p7", "debut": 38.0, "fin": 44.0, "texte": "Les skills, seulement là où il faut : tu les actives par projet, et le contexte reste léger." },
+    { "id": "p8", "debut": 44.6, "fin": 51.6, "texte": "Et des plugins maison, comme images : Claude dessine, regarde le résultat, et recommence si besoin.", "dit": "Et des pleuguines maison, comme images : Claude dessine, regarde le résultat, et recommence si besoin." },
+    { "id": "p9", "debut": 52.6, "fin": 61.5, "texte": "Relais : gratuit, open source, et à télécharger sur GitHub.", "dit": "Relais : gratuit, open source, et à télécharger sur guitteub." }
+  ]
+}

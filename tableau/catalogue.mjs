@@ -71,6 +71,17 @@ function dossierSource(source) {
   return fs.existsSync(path.join(p, '.claude-plugin', 'plugin.json')) ? p : null;
 }
 
+// A plugin copied by the app (<config>/skills/<name>, loaded as <name>@skills-dir) that is ALSO installed
+// from a marketplace (<name>@<marketplace>) runs its hooks twice. `ids`: plugin ids as listed by Claude Code
+// (installed_plugins.json keys, or `claude plugin list --json`); `copieLocale`: the copy exists.
+// -> the marketplace ids to uninstall (`claude plugin uninstall <id>`), [] when there is no double.
+const ID_MARKET = /^[a-z0-9][a-z0-9._-]{0,63}@[a-z0-9][a-z0-9._-]{0,63}$/i;
+export function doublonsMarketplace(nom, ids, copieLocale) {
+  const liste = (Array.isArray(ids) ? ids : []).map(String);
+  if (!copieLocale && !liste.includes(`${nom}@skills-dir`)) return [];
+  return [...new Set(liste.filter((id) => id.startsWith(`${nom}@`) && id !== `${nom}@skills-dir` && ID_MARKET.test(id)))];
+}
+
 export function catalogue() {
   if (!racine()) return [];
   const place = lireJSON(path.join(racine(), '.claude-plugin', 'marketplace.json')) || { plugins: [] };
@@ -98,9 +109,11 @@ export function catalogue() {
     let versionInstallee = '';
     if (viaMarket) { etat = 'marketplace'; versionInstallee = viaMarket.version || ''; }
     else if (local) { versionInstallee = local.version || ''; etat = versionInstallee === versionDispo ? 'a-jour' : 'ancienne'; }
+    const doublons = doublonsMarketplace(p.name, Object.keys(installes), !!local);
     res.push({
       nom: p.name, description: p.description || manifeste.description || '', versionDispo, versionInstallee, etat,
       skills, agents, hooks,
+      doublons: doublons.map((id) => ({ id, commande: `claude plugin uninstall ${id}` })),
       dossierLocal: path.join(dossierClaude(), 'skills', p.name),
       commandes: [`/plugin marketplace add ${place.owner?.name || 'nathangerardeaux'}/claude-relais`, `/plugin install ${p.name}@${place.name}`],
     });

@@ -10,9 +10,9 @@ On the author's five biggest real conversations, that is **-75% tokens** (simula
 For anyone who uses Claude Code for long sessions, on a Pro/Max plan (you hit the limits later) or on
 the API (you pay less).
 
-[![Relais in one minute (video, French voice-over)](docs/relais-video.png)](docs/relais.mp4)
+https://github.com/user-attachments/assets/10456c8c-69d7-4cb5-b3ef-fd7815e6c9b3
 
-*One-minute video (French voice-over): the problem, the relay, the savings.*
+*One-minute video (French voice-over): the problem, the relay, the savings. [Download it](docs/relais.mp4).*
 
 ---
 

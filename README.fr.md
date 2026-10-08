@@ -11,9 +11,9 @@ détails plus bas).
 Pour tous ceux qui utilisent Claude Code sur de longues sessions, avec un forfait Pro/Max (vous
 atteignez les limites plus tard) ou avec l'API (vous payez moins).
 
-[![Relais en une minute (vidéo, voix française)](docs/relais-video.png)](docs/relais.mp4)
+https://github.com/user-attachments/assets/10456c8c-69d7-4cb5-b3ef-fd7815e6c9b3
 
-*Vidéo d'une minute : le problème, le relais, les économies.*
+*Vidéo d'une minute : le problème, le relais, les économies. [La télécharger](docs/relais.mp4).*
 
 ---
 

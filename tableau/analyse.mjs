@@ -7,6 +7,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tr } from './langue.mjs';
 import { Historique } from './historique.mjs';
+import { categorie, profil, cleProjet } from './profils.mjs';
 
 const ici = path.dirname(fileURLToPath(import.meta.url));
 export const dossierClaude = () => process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -17,7 +18,7 @@ export const dossierProjets = () => process.env.TABLEAU_PROJETS || dossierCompte
 const FICHIER_CACHE = () => process.env.TABLEAU_CACHE || path.join(ici, '.cache', 'index.json');
 // Next to the cache but a file of its own: the index can be rebuilt at any time, the history must not be lost.
 const fichierHistorique = () => path.join(path.dirname(FICHIER_CACHE()), 'historique.json');
-const VERSION_CACHE = 4; // bump when the parsed state changes shape: everything is re-read once
+const VERSION_CACHE = 5; // bump when the parsed state changes shape: everything is re-read once
 
 const MAX_POINTS = 1200;  // context curve kept per conversation (peaks preserved)
 const MAX_TEXTE = 160;    // prompt excerpt kept per turn
@@ -47,7 +48,8 @@ export function nouvelEtat() {
   };
 }
 
-const nouveauJour = () => ({ in: 0, out: 0, read: 0, create: 0, appels: 0, h: {}, mod: {}, ctxMax: 0 });
+// cat: tool calls per kind of work (profils.mjs), for the opt-in "model per task" hint
+const nouveauJour = () => ({ in: 0, out: 0, read: 0, create: 0, appels: 0, h: {}, mod: {}, ctxMax: 0, cat: {} });
 
 const jourLocal = (ts) => {
   const d = new Date(ts);
@@ -236,6 +238,9 @@ export function lireLigne(e, l) {
     (e.outils[nom] ||= { appels: 0, car: 0 }).appels += 1;
     tour.outils[nom] = (tour.outils[nom] || 0) + 1;
     if (OUTILS_ACTION.has(b.name)) tour.actions += 1;
+    const cat = categorie(b.name, b.input);
+    const jc = cat && jourLocal(ts);
+    if (jc) { const dj = (e.det[jc] ||= nouveauJour()); dj.cat[cat] = (dj.cat[cat] || 0) + 1; }
     if (b.id) e.attente[b.id] = { n: nom, q: quoiCourt(b) };
   }
   // Tool calls left without a result (interrupted session) must not pile up forever.
@@ -415,7 +420,7 @@ export class Index {
         this.progres.fait += 1;
         if (Date.now() - dernierSave > 5000) { this.sauverCache(); dernierSave = Date.now(); }
       }
-      if (aLire.length) { this.sauverCache(); this.historiser(); }
+      if (aLire.length) { this.sauverCache(); this.historiser(); this.apresMaj?.(); }
     } finally { this.enCours = false; }
   }
 
@@ -432,6 +437,28 @@ export class Index {
   }
 
   // ------------------------------------------------------------ views for the interface
+
+  // Kind of work per project over the last `jours` days (main conversations and their subagents),
+  // keyed like the SessionStart hook keys its cwd. Projects without any counted call are left out.
+  profilsProjets(jours = 30, fin = jourLocal(new Date())) {
+    const debut = jourMoins(fin, jours - 1);
+    const par = {};
+    // A subagent log without a cwd belongs to the folder of its main conversation.
+    const cwdSession = {};
+    for (const c of Object.values(this.fichiers)) if (!c.agent && c.etat?.cwd) cwdSession[`${c.dossier}/${c.session}`] = c.etat.cwd;
+    for (const c of Object.values(this.fichiers)) {
+      const e = c.etat;
+      const cwd = e?.cwd || cwdSession[`${c.dossier}/${c.session}`];
+      if (!cwd || !e.det) continue;
+      const x = (par[cleProjet(cwd)] ||= { projet: nomProjet(cwd, c.dossier), comptes: {} });
+      for (const [j, d] of Object.entries(e.det)) {
+        if (j < debut || j > fin || !d.cat) continue;
+        for (const [k, n] of Object.entries(d.cat)) x.comptes[k] = (x.comptes[k] || 0) + n;
+      }
+    }
+    return Object.entries(par).map(([cle, x]) => ({ cle, projet: x.projet, ...profil(x.comptes) }))
+      .filter((p) => p.appels > 0).sort((a, b) => b.appels - a.appels);
+  }
 
   // Log file of a conversation's main thread (not its agents), or null.
   cheminPrincipal(id) {

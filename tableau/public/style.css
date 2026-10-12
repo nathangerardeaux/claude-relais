@@ -440,3 +440,6 @@ td.ctx-lourd { color: var(--grave); font-weight: 600; }
 .choix-histo { border: 0; padding: 0; margin: 8px 0 12px; display: flex; gap: 18px; flex-wrap: wrap; }
 .choix-histo legend { color: var(--muet); font-size: 12px; padding: 0; margin-bottom: 6px; }
 .choix-histo label { cursor: pointer; }
+#carte-routage h3 { font-size: 13px; margin: 16px 0 4px; }
+#carte-routage ul { margin: 4px 0 0; padding-left: 20px; }
+#carte-routage .interrupteur { margin-top: 10px; }

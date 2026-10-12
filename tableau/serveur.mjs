@@ -32,6 +32,27 @@ function ecrireAvocat(actif) {
   return e;
 }
 
+// "Model per task" (opt-in, see tableau/profils.mjs): same file as plugins/relais/scripts/deleguer.mjs reads.
+// Absent or unreadable = off. Project profiles are written into it only while it is on.
+const fichierRoutage = () => process.env.RELAIS_ROUTAGE || path.join(dossierClaude(), 'relais', 'routage.json');
+export function lireRoutage() {
+  try { const e = JSON.parse(fs.readFileSync(fichierRoutage(), 'utf8')); return { actif: e?.actif === true, depuis: e?.depuis || '' }; }
+  catch { return { actif: false, depuis: '' }; }
+}
+function ecrireRoutage(actif, depuis, profils) {
+  const e = { actif: !!actif, depuis: depuis || new Date().toISOString() };
+  if (actif) {
+    const maj = new Date().toISOString().slice(0, 10);
+    e.profils = {};
+    for (const x of profils) if (x.profil) e.profils[x.cle] = { profil: x.profil, parts: x.parts, appels: x.appels, maj };
+  }
+  fs.mkdirSync(path.dirname(fichierRoutage()), { recursive: true });
+  const tmp = `${fichierRoutage()}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(e, null, 2));
+  fs.renameSync(tmp, fichierRoutage());
+  return { actif: e.actif, depuis: e.depuis };
+}
+
 // Error messages sent to the page, in the system language.
 const ERREURS = {
   refusee: { fr: 'Requête refusée.', en: 'Request refused.' },
@@ -137,6 +158,11 @@ function ouvrirDansNavigateur(url) {
 export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = false, journal = console.log, depot, bureau } = {}) {
   const choixDepot = depot === undefined ? null : definirDepot(depot);
   const index = new Index();
+  // While "model per task" is on, every index update refreshes the project profiles the hook reads.
+  index.apresMaj = () => {
+    const r = lireRoutage();
+    if (r.actif) try { ecrireRoutage(true, r.depuis, index.profilsProjets()); } catch { /* retried at the next update */ }
+  };
   let port = Number(portDemande) || 0;
   let minuterie = null;
 
@@ -229,6 +255,7 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
           indexation: { ...index.progres, enCours: index.enCours }, dossier: dossierProjets(),
           avocat: { ...lireAvocat(), installe: cat.some((x) => x.nom === 'avocat' && x.etat !== 'absent') },
           relais: { installe: cat.some((x) => x.nom === 'relais' && x.etat !== 'absent') },
+          routage: lireRoutage(),
         });
       }
       if (req.method === 'GET' && p === '/api/conversations') return envoyer(res, 200, index.liste());
@@ -327,6 +354,15 @@ export function demarrerServeur({ port: portDemande = 4747, ouvrirNavigateur = f
         return envoyer(res, r.ok ? 200 : 400, r);
       }
 
+      // Project profiles: short project names only, never a full path.
+      if (req.method === 'GET' && p === '/api/routage') {
+        return envoyer(res, 200, { ...lireRoutage(), profils: index.profilsProjets().map(({ cle, ...x }) => x) });
+      }
+      if (req.method === 'POST' && p === '/api/routage') {
+        const b = await lireCorps(req);
+        if (!b || typeof b.actif !== 'boolean') return envoyer(res, 400, erreur('actif'));
+        return envoyer(res, 200, ecrireRoutage(b.actif, '', b.actif ? index.profilsProjets() : []));
+      }
       if (req.method === 'POST' && p === '/api/avocat') {
         const b = await lireCorps(req);
         if (!b || typeof b.actif !== 'boolean') return envoyer(res, 400, erreur('actif'));

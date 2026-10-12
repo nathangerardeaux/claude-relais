@@ -95,6 +95,7 @@ Your relays stay in `~/.claude/relais/`.
 | **relais** plugin | Measures the conversation size on every message. Above 150k tokens, Claude writes a short relay (summary) of the work; you type `/clear` and the new session resumes from it. |
 | **Rules registry** (in relais) | Claude records the pitfalls and rules it learns (per project or global). They are reloaded at the start of every session, so the same mistake is not paid for twice. `/regles` opens a conversation to review them. |
 | **Delegation note** (in relais) | Reminds Claude once per session to give long, self-contained tasks to a cheaper subagent (Sonnet or Haiku) that returns a short result. |
+| **Model per task** (opt-in, off by default) | Turned on in the dashboard settings: the delegation note becomes a measured rule (Haiku for large inventories, Sonnet for large code work, small tasks done directly, never Haiku for judgement or writing), plus the project's profile over the last 30 days. Measurements: [docs/routage.md](docs/routage.md) (in French). |
 | **Relais app** (Windows) | A dashboard of your real token usage, conversation by conversation, and one-click management of plugins and skills. |
 | **avocat** plugin | A "devil's advocate" switch: while on, an independent read-only agent tries to refute every answer before Claude concludes. |
 | **images** plugin | Image generation from Claude Code: free with a local Stable Diffusion (NVIDIA GPU), or Codex with a paid ChatGPT plan. Claude writes the prompt, looks at the result and retries. |

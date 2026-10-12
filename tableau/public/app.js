@@ -194,6 +194,7 @@ function barresH(lignes, { valeur, texte, info }) {
 const etat = {
   conversations: [], ouverts: JSON.parse(localStorage.getItem('relais-onglets') || '[]'), actif: localStorage.getItem('relais-actif') || null,
   relais: { installe: false }, details: new Map(), page: localStorage.getItem('relais-page') || 'vue', avocat: { actif: false, installe: false },
+  routage: { actif: false, depuis: '' },
 };
 function allerA(page) {
   etat.page = page; localStorage.setItem('relais-page', page);
@@ -1654,8 +1655,8 @@ function afficherParametres() {
   const page = $('#page-parametres');
   const histo = h('div', { class: 'carte bloc', id: 'carte-histo' });
   if (!b) {
-    page.replaceChildren(h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('nav.parametres')))), histo, h('p', { class: 'muet' }, t('param.horsBureau')));
-    chargerHistorique();
+    page.replaceChildren(h('div', { class: 'entete' }, h('div', {}, h('h1', {}, t('nav.parametres')))), carteRoutage(), histo, h('p', { class: 'muet' }, t('param.horsBureau')));
+    chargerHistorique(); chargerProfils();
     return;
   }
   const d = b.demarrage || {};
@@ -1668,6 +1669,7 @@ function afficherParametres() {
         h('div', { class: 'muet' }, !d.disponible ? t('param.demarrageIndispo')
           : d.actif ? t('param.demarrageOn') : t('param.demarrageOff'))))),
     carteStats(b),
+    carteRoutage(),
     histo,
     h('div', { class: 'grille-2' },
       h('div', { class: 'carte' }, h('h2', {}, t('param.majs')), h('p', {}, `${t('param.versionInstallee')} `, h('b', {}, b.version)), ...blocMaj(b.maj || {})),
@@ -1678,6 +1680,45 @@ function afficherParametres() {
           h('li', {}, t('param.savoir3')),
           h('li', {}, t('param.savoir4'))))),
   );
+  chargerHistorique(); chargerProfils();
+}
+// "Model per task" (opt-in): switch, measured figures, and the profile of each project.
+function carteRoutage() {
+  const r = etat.routage;
+  const coche = h('input', { type: 'checkbox', id: 'coche-routage', checked: r.actif, onchange: async (ev) => {
+    const voulu = ev.currentTarget.checked;
+    try { etat.routage = await api('/api/routage', { actif: voulu }); toast(t(etat.routage.actif ? 'routage.active' : 'routage.desactive')); }
+    catch (e) { toast(e.message, true); }
+    const ancienne = $('#carte-routage');
+    if (ancienne) { ancienne.replaceWith(carteRoutage()); chargerProfils(); }
+  } });
+  return h('div', { class: 'carte bloc', id: 'carte-routage' },
+    h('h2', {}, t('routage.titre')),
+    h('p', { class: 'aide' }, t('routage.intro')),
+    h('label', { class: 'interrupteur', for: 'coche-routage' }, coche, h('span', { class: 'glissiere', 'aria-hidden': 'true' }),
+      h('div', {}, h('div', { class: 'etat' }, t(r.actif ? 'routage.etatOn' : 'routage.etatOff')),
+        h('div', { class: 'muet' }, r.actif ? t('routage.depuis', { date: date(r.depuis) }) : t('routage.cocher')))),
+    r.actif && !etat.relais.installe ? h('div', { class: 'avertissement' }, t('routage.pasInstalle')) : null,
+    h('h3', {}, t('routage.mesures')),
+    h('ul', {}, ['routage.mesure1', 'routage.mesure2', 'routage.mesure3', 'routage.mesure4'].map((k) => h('li', {}, t(k)))),
+    h('h3', {}, t('routage.profils')),
+    h('p', { class: 'muet petit' }, t('routage.profilsAide')),
+    h('div', { id: 'zone-profils' }),
+    h('p', { class: 'muet petit' }, t('routage.note')));
+}
+async function chargerProfils() {
+  const r = await api('/api/routage').catch(() => null);
+  const zone = $('#zone-profils');
+  if (!zone || !r) return;
+  const avec = r.profils.filter((x) => x.profil);
+  const autres = r.profils.length - avec.length;
+  if (!avec.length) { zone.replaceChildren(h('p', { class: 'muet' }, t(autres ? 'routage.peu' : 'routage.aucun', { n: autres }))); return; }
+  const parts = (x) => Object.entries(x.parts).sort((a, b) => b[1] - a[1]).map(([k, n]) => `${t(`routage.${k}`)} ${pc(n)}`).join(' · ');
+  remplacer(zone, h('div', { class: 'defile' }, h('table', {},
+    h('thead', {}, h('tr', {}, h('th', {}, t('commun.projet')), h('th', {}, t('routage.colProfil')), h('th', { class: 'num' }, t('routage.colAppels')), h('th', {}, t('routage.colParts')))),
+    h('tbody', {}, avec.map((x) => h('tr', {}, h('td', {}, x.projet), h('td', {}, h('b', {}, t(`routage.${x.profil}`))),
+      h('td', { class: 'num' }, nf.format(x.appels)), h('td', { class: 'muet petit' }, parts(x))))))),
+    autres ? h('p', { class: 'muet petit' }, t('routage.peu', { n: autres })) : null);
 }
 // How long Claude Code keeps the conversation logs (cleanupPeriodDays in its settings.json), and what they weigh.
 async function chargerHistorique() {
@@ -1716,6 +1757,7 @@ async function rafraichirEtat() {
   if (!e) { $('#indexation').textContent = t('app.serveurArrete'); return; }
   const changeAvocat = e.avocat.actif !== etat.avocat.actif || e.avocat.installe !== etat.avocat.installe;
   etat.avocat = e.avocat; etat.relais = e.relais || { installe: false }; majPastille();
+  if (e.routage) etat.routage = e.routage;
   if (changeAvocat && etat.page === 'avocat') afficherAvocat();
   const i = e.indexation;
   const nb = etat.conversations.length;

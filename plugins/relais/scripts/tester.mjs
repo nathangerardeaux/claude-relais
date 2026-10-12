@@ -150,6 +150,34 @@ verif('delegation: English note', /^\[relais\] Token saving/.test(ctxD(d5)) && /
 const d6 = lancer('deleguer.mjs', 'not json');
 verif('delegation: invalid input, no error', d6.code === 0 && !d6.stderr);
 verif('delegation: short note (~60 tokens, under 260 characters)', ctxD(d1).length < 260 && ctxD(d5).length < 260, `${ctxD(d1).length} / ${ctxD(d5).length} car.`);
+// ---- "Model per task" (opt-in): routage.json written by the dashboard ----
+const ROUTAGE = path.join(HOME, 'routage.json');
+const cle = (p) => { let s = p.replace(/\\/g, '/').replace(/\/+$/, ''); return process.platform === 'win32' || process.platform === 'darwin' ? s.toLowerCase() : s; };
+const avecRoutage = (contenu, cwd = PROJET, lang = 'fr', envPlus = {}) => {
+  if (contenu === null) fs.rmSync(ROUTAGE, { force: true }); else fs.writeFileSync(ROUTAGE, typeof contenu === 'string' ? contenu : JSON.stringify(contenu));
+  return ctxD(lancer('deleguer.mjs', { session_id: 'r', cwd, source: 'startup' }, lang, { RELAIS_ROUTAGE: ROUTAGE, ...envPlus }));
+};
+verif('model per task: no file = the usual note, unchanged', avecRoutage(null) === ctxD(d1));
+verif('model per task: unreadable file = off', avecRoutage('{pas du json') === ctxD(d1));
+verif('model per task: actif false = off', avecRoutage({ actif: false, profils: { [cle(PROJET)]: { profil: 'lecture', parts: { lecture: 80 } } } }) === ctxD(d1));
+const rt1 = avecRoutage({ actif: true, depuis: '2026-10-12', profils: {} });
+verif('model per task: on = the per-task rule (haiku to read, never haiku to judge)', /Modèle selon la tâche/.test(rt1) && /"haiku" pour lire/.test(rt1) && /jamais "haiku"/.test(rt1) && !/Ce projet/.test(rt1), rt1.slice(0, 60));
+const rt2 = avecRoutage({ actif: true, profils: { [cle(PROJET)]: { profil: 'lecture', parts: { lecture: 62, code: 20 }, appels: 90 } } });
+verif('model per task: profile line for this project', /Ce projet \(30 derniers jours\) : surtout de la lecture \(62 %/.test(rt2), rt2.slice(-90));
+const rt3 = avecRoutage({ actif: true, profils: { [cle(PROJET)]: { profil: 'mixte', parts: { lecture: 40 } } } });
+verif('model per task: "mixte" profile = no profile line', rt3 === rt1);
+const rt4 = avecRoutage({ actif: true, profils: { [cle(path.join(HOME, 'autre'))]: { profil: 'code', parts: { code: 70 } } } });
+verif('model per task: another project\'s profile is not used', rt4 === rt1);
+const rt5 = avecRoutage({ actif: true, profils: { [cle(PROJET)]: { profil: 'redaction', parts: { redaction: 55 } } } }, PROJET, 'en');
+verif('model per task: English note and profile', /^\[relais\] Model per task/.test(rt5) && /mostly writing \(55 %/.test(rt5), rt5.slice(-70));
+verif('model per task: RELAIS_DELEGUER=0 still turns everything off', avecRoutage({ actif: true }, PROJET, 'fr', { RELAIS_DELEGUER: '0' }) === '');
+if (process.platform === 'win32') {
+  const rt6 = avecRoutage({ actif: true, profils: { [cle(PROJET)]: { profil: 'code', parts: { code: 70 } } } }, PROJET.toUpperCase().replace(/\\/g, '/') + '/');
+  verif('model per task: same folder whatever the case and slashes', /surtout du code \(70 %/.test(rt6));
+}
+verif('model per task: note stays short (under 700 characters)', rt2.length < 700 && rt5.length < 700, `${rt2.length} / ${rt5.length} car.`);
+fs.rmSync(ROUTAGE, { force: true });
+
 const hooks = JSON.parse(fs.readFileSync(path.join(ici, '..', 'hooks', 'hooks.json'), 'utf8')).hooks;
 const hk = hooks.SessionStart;
 verif('delegation: hook wired on startup|clear|compact', hk.some((h) => h.matcher === 'startup|clear|compact' && h.hooks.some((x) => /deleguer\.mjs/.test(x.command))));

@@ -57,6 +57,29 @@ fs.writeFileSync(path.join(dossierAgents, 'agent-abc123.meta.json'), JSON.string
 // ---- parsing
 const ix = new Index();
 await ix.mettreAJour();
+
+// ---- "model per task" (opt-in): kind of work per project
+{
+  const { categorie, profil, cleProjet } = await import('./profils.mjs');
+  verif('profiles: categories of tool calls', categorie('Read') === 'lecture' && categorie('Grep') === 'lecture'
+    && categorie('Edit', { file_path: 'src/a.ts' }) === 'code' && categorie('Write', { file_path: 'C:\\x\\config.json' }) === 'code'
+    && categorie('Edit', { file_path: 'docs/README.md' }) === 'redaction' && categorie('Write', { file_path: 'lettre.docx' }) === 'redaction'
+    && categorie('WebSearch') === 'recherche' && categorie('mcp__playwright__browser_click') === 'recherche'
+    && categorie('Bash') === '' && categorie('PowerShell') === '' && categorie('Agent') === '' && categorie('Edit', {}) === '');
+  const p1 = profil({ lecture: 20, code: 5 });
+  verif('profiles: under 30 calls = no profile', p1.profil === '' && p1.appels === 25 && p1.parts.lecture === 80);
+  const p2 = profil({ lecture: 50, code: 30, redaction: 20 });
+  verif('profiles: dominant kind at 45 % or more', p2.profil === 'lecture' && p2.parts.lecture === 50, JSON.stringify(p2));
+  const p3 = profil({ lecture: 40, code: 35, recherche: 25 });
+  verif('profiles: no dominant kind = "mixte"', p3.profil === 'mixte');
+  verif('profiles: folder key like the hook (case, slashes)', cleProjet('C:\\Dev\\Projet\\', 'win32') === 'c:/dev/projet'
+    && cleProjet('/c/Dev/Projet', 'win32') === 'c:/dev/projet' && cleProjet('/home/x/Projet/', 'linux') === '/home/x/Projet');
+  const pr = ix.profilsProjets(30, '2026-10-04');
+  const moi = pr.find((x) => x.projet === 'mon-projet');
+  verif('profiles: counted from the logs, subagents included (Read + Grep)', moi?.parts.lecture === 100 && moi?.appels === 2 && moi?.profil === ''
+    && moi?.cle === cleProjet('D:\\mon-projet'), JSON.stringify(pr));
+  verif('profiles: only the last 30 days', !ix.profilsProjets(30, '2026-12-01').some((x) => x.projet === 'mon-projet'));
+}
 const liste = ix.liste();
 verif('analyse: one conversation listed (subagent attached, not separate)', liste.length === 1, JSON.stringify(liste.map((c) => c.id)));
 const d = ix.detail(SID);
@@ -604,6 +627,18 @@ try {
   verif('server: devil\'s advocate switch writes the shared file', (await post('/api/avocat', { actif: true })).status === 200
     && JSON.parse(fs.readFileSync(process.env.AVOCAT_ETAT, 'utf8')).actif === true);
   verif('server: bad switch value refused', (await post('/api/avocat', { actif: 'oui' })).status === 400);
+  const fRoutage = path.join(CLAUDE, 'relais', 'routage.json');
+  verif('server: "model per task" off by default, no file written', (await (await get('/api/etat')).json()).routage?.actif === false && !fs.existsSync(fRoutage));
+  verif('server: "model per task" bad value refused', (await post('/api/routage', { actif: 1 })).status === 400 && !fs.existsSync(fRoutage));
+  const rOn = await post('/api/routage', { actif: true });
+  const fOn = JSON.parse(fs.readFileSync(fRoutage, 'utf8'));
+  verif('server: "model per task" on writes the file the hook reads', rOn.status === 200 && fOn.actif === true && typeof fOn.profils === 'object' && !!fOn.depuis);
+  const vueR = await (await get('/api/routage')).json();
+  verif('server: profiles sent to the page with short names only', vueR.actif === true && Array.isArray(vueR.profils) && vueR.profils.every((x) => typeof x.projet === 'string')
+    && vueR.profils.every((x) => !('cle' in x)) && !/:[\\/]/.test(JSON.stringify(vueR)),JSON.stringify(vueR).slice(0, 120));
+  await post('/api/routage', { actif: false });
+  const fOff = JSON.parse(fs.readFileSync(fRoutage, 'utf8'));
+  verif('server: "model per task" off keeps no profile', fOff.actif === false && !('profils' in fOff));
   const skills = await (await get('/api/skills')).json();
   verif('skills: catalogue lists relais and avocat', ['relais', 'avocat'].every((n) => skills.some((s) => s.nom === n && s.etat === 'absent')), skills.map((s) => s.nom).join(','));
   verif('skills: avocat exposes its agent and its /avocat command', skills.find((s) => s.nom === 'avocat')?.agents.some((a) => a.nom === 'avocat-du-diable')

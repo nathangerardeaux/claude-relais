@@ -176,6 +176,11 @@ main model, API-equivalent prices, details in [docs/delegation.md](../../docs/de
 
 Quality was the same on the automatically scored task (13 files out of 13, exact exported names).
 
+**Model per task** (opt-in, off by default, switched on in the dashboard settings): the note above becomes
+a measured rule saying which model to delegate to. 48 runs: a large inventory costs -62% with a Haiku
+subagent at the same quality, small tasks are cheapest done directly, and Haiku loses half the quality on
+reasoning and writing. Details in [docs/routage.md](../../docs/routage.md) (in French).
+
 Measure your own numbers with the simulator: [section 8](#8-measure-your-own-savings).
 
 ---

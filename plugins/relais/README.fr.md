@@ -179,6 +179,12 @@ session (Opus en session principale, prix API équivalents, détail dans
 La qualité était la même sur la tâche notée automatiquement (13 fichiers sur 13, noms exportés
 exacts).
 
+**Modèle selon la tâche** (facultatif, désactivé par défaut, s'active dans les paramètres du tableau) :
+la consigne ci-dessus devient une règle mesurée qui dit à quel modèle déléguer. Sur 48 essais : un gros
+relevé coûte -62 % avec un sous-agent Haiku à qualité égale, les petites tâches reviennent moins cher
+faites directement, et Haiku perd la moitié de la qualité en réflexion et en rédaction. Détail dans
+[docs/routage.md](../../docs/routage.md).
+
 Mesurez vos propres chiffres avec le simulateur : [section 8](#8-mesurer-vos-propres-économies).
 
 ---
